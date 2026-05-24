@@ -5,6 +5,7 @@ description = "Select OCR regions on an image preview and write recognized text 
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "customtkinter>=5.2.2",
     "openpyxl>=3.1.0",
     "pillow>=10.0.0",
     "pywin32>=306; sys_platform == 'win32'",

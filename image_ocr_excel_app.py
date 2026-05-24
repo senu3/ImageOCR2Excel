@@ -8,32 +8,22 @@ from pathlib import Path
 from tkinter import (
     BOTH,
     BOTTOM,
-    DISABLED,
     END,
     HORIZONTAL,
     LEFT,
-    NORMAL,
     RIGHT,
     TOP,
     VERTICAL,
-    Button,
     Canvas,
-    Entry,
-    Frame,
-    Label,
-    LabelFrame,
     Listbox,
-    Menu,
     Scrollbar,
     StringVar,
-    Tk,
-    Toplevel,
     filedialog,
     messagebox,
     simpledialog,
-    ttk,
 )
 
+import customtkinter as ctk
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.cell import coordinate_to_tuple
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageTk
@@ -71,7 +61,7 @@ class Region:
 
 
 class ImageOcrExcelApp:
-    def __init__(self, root: Tk) -> None:
+    def __init__(self, root: ctk.CTk) -> None:
         self.root = root
         self.root.title(APP_TITLE)
         self.root.geometry("1180x780")
@@ -80,7 +70,7 @@ class ImageOcrExcelApp:
         self.image_path: Path | None = None
         self.excel_path: Path | None = None
         self.open_excel_books: list[dict[str, object]] = []
-        self.excel_target_mode = "file"
+        self.excel_target_mode = "open"
         self.original_image: Image.Image | None = None
         self.preview_image: ImageTk.PhotoImage | None = None
         self.regions: list[Region] = []
@@ -95,6 +85,7 @@ class ImageOcrExcelApp:
 
         self.image_var = StringVar(value="画像未選択")
         self.excel_var = StringVar(value="Excel未選択")
+        self.excel_mode_var = StringVar(value="開いているExcel")
         self.open_book_var = StringVar(value="")
         self.sheet_var = StringVar(value="Sheet1")
         self.lang_var = StringVar(value=DEFAULT_LANG)
@@ -104,46 +95,70 @@ class ImageOcrExcelApp:
         self._build_ui()
 
     def _build_ui(self) -> None:
-        toolbar = Frame(self.root, padx=8, pady=8)
-        toolbar.pack(side=TOP, fill="x")
+        ctk.set_appearance_mode("light")
+        ctk.set_default_color_theme("blue")
 
-        Button(toolbar, text="画像を開く", command=self.open_image).pack(side=LEFT, padx=(0, 6))
-        Button(toolbar, text="Excelを選択", command=self.select_excel).pack(side=LEFT, padx=(0, 6))
-        Button(toolbar, text="開いているExcel更新", command=self.refresh_open_excel).pack(side=LEFT, padx=(0, 6))
-        Button(toolbar, text="設定保存", command=self.save_mapping).pack(side=LEFT, padx=(0, 6))
-        Button(toolbar, text="設定読込", command=self.load_mapping).pack(side=LEFT, padx=(0, 12))
+        top = ctk.CTkFrame(self.root, corner_radius=0)
+        top.pack(side=TOP, fill="x")
+        top.grid_columnconfigure(0, weight=1)
+        top.grid_columnconfigure(1, weight=2)
+        top.grid_columnconfigure(2, weight=1)
 
-        Label(toolbar, text="OCR言語").pack(side=LEFT)
-        Entry(toolbar, textvariable=self.lang_var, width=10).pack(side=LEFT, padx=(4, 12))
-        Label(toolbar, text="Tesseract").pack(side=LEFT)
-        Entry(toolbar, textvariable=self.tesseract_var, width=38).pack(side=LEFT, padx=(4, 8))
+        image_panel = ctk.CTkFrame(top, corner_radius=8)
+        image_panel.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
+        ctk.CTkLabel(image_panel, text="画像", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 6))
+        ctk.CTkButton(image_panel, text="画像を開く", command=self.open_image).pack(fill="x", padx=12)
+        mapping_row = ctk.CTkFrame(image_panel, fg_color="transparent")
+        mapping_row.pack(fill="x", padx=12, pady=(8, 10))
+        ctk.CTkButton(mapping_row, text="設定読込", command=self.load_mapping, width=92).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(mapping_row, text="設定保存", command=self.save_mapping, width=92, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
 
-        Button(toolbar, text="選択範囲をOCR", command=self.ocr_selected).pack(side=LEFT, padx=(0, 6))
-        Button(toolbar, text="全範囲をOCR", command=self.ocr_all).pack(side=LEFT, padx=(0, 6))
-        Button(toolbar, text="Excelへ反映", command=self.write_excel).pack(side=LEFT)
+        excel_panel = ctk.CTkFrame(top, corner_radius=8)
+        excel_panel.grid(row=0, column=1, sticky="nsew", padx=5, pady=10)
+        excel_panel.grid_columnconfigure(0, weight=1)
+        excel_panel.grid_columnconfigure(1, weight=0)
+        excel_panel.grid_columnconfigure(2, weight=0)
+        ctk.CTkLabel(excel_panel, text="Excel", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, columnspan=3, sticky="w", padx=12, pady=(10, 6))
+        ctk.CTkSegmentedButton(
+            excel_panel,
+            values=["開いているExcel", "ファイル出力"],
+            variable=self.excel_mode_var,
+            command=self.on_excel_mode_change,
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        ctk.CTkButton(excel_panel, text="更新", command=self.refresh_open_excel, width=72).grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(0, 8))
+        ctk.CTkButton(excel_panel, text="ファイル選択", command=self.select_excel, width=96, fg_color="#64748b", hover_color="#475569").grid(row=1, column=2, sticky="ew", padx=(0, 12), pady=(0, 8))
+        self.book_combo = ctk.CTkComboBox(excel_panel, variable=self.open_book_var, values=[], command=self.on_open_book_select)
+        self.book_combo.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+        self.sheet_combo = ctk.CTkComboBox(excel_panel, variable=self.sheet_var, values=["Sheet1"])
+        self.sheet_combo.grid(row=2, column=2, sticky="ew", padx=(0, 12), pady=(0, 8))
 
-        excelbar = Frame(self.root, padx=8)
-        excelbar.pack(side=TOP, fill="x")
-        Label(excelbar, text="開いているブック").pack(side=LEFT)
-        self.book_combo = ttk.Combobox(excelbar, textvariable=self.open_book_var, width=42, state="readonly")
-        self.book_combo.pack(side=LEFT, padx=(4, 12))
-        self.book_combo.bind("<<ComboboxSelected>>", self.on_open_book_select)
-        Label(excelbar, text="シート").pack(side=LEFT)
-        self.sheet_combo = ttk.Combobox(excelbar, textvariable=self.sheet_var, width=24)
-        self.sheet_combo.pack(side=LEFT, padx=(4, 12))
-        Button(excelbar, text="開いているExcelを使用", command=self.use_open_excel).pack(side=LEFT, padx=(0, 6))
-        Button(excelbar, text="ファイル出力を使用", command=self.use_file_excel).pack(side=LEFT)
+        ocr_panel = ctk.CTkFrame(top, corner_radius=8)
+        ocr_panel.grid(row=0, column=2, sticky="nsew", padx=(5, 10), pady=10)
+        ctk.CTkLabel(ocr_panel, text="OCR / 反映", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 6))
+        ocr_row = ctk.CTkFrame(ocr_panel, fg_color="transparent")
+        ocr_row.pack(fill="x", padx=12)
+        ctk.CTkButton(ocr_row, text="選択OCR", command=self.ocr_selected).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(ocr_row, text="全OCR", command=self.ocr_all).pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
+        ctk.CTkButton(ocr_panel, text="Excelへ反映", command=self.write_excel, height=36, fg_color="#16a34a", hover_color="#15803d").pack(fill="x", padx=12, pady=(8, 10))
 
-        pathbar = Frame(self.root, padx=8)
-        pathbar.pack(side=TOP, fill="x")
-        Label(pathbar, textvariable=self.image_var, anchor="w").pack(side=LEFT, fill="x", expand=True)
-        Label(pathbar, textvariable=self.excel_var, anchor="w").pack(side=RIGHT, fill="x", expand=True)
+        settings = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
+        settings.pack(side=TOP, fill="x", padx=10, pady=(0, 6))
+        ctk.CTkLabel(settings, text="OCR言語").pack(side=LEFT)
+        ctk.CTkEntry(settings, textvariable=self.lang_var, width=92).pack(side=LEFT, padx=(6, 14))
+        ctk.CTkLabel(settings, text="Tesseract").pack(side=LEFT)
+        ctk.CTkEntry(settings, textvariable=self.tesseract_var, width=360).pack(side=LEFT, padx=(6, 14))
+        ctk.CTkLabel(settings, textvariable=self.status_var, anchor="w").pack(side=LEFT, fill="x", expand=True)
 
-        main = Frame(self.root, padx=8, pady=8)
+        pathbar = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
+        pathbar.pack(side=TOP, fill="x", padx=10, pady=(0, 6))
+        ctk.CTkLabel(pathbar, textvariable=self.image_var, anchor="w").pack(side=LEFT, fill="x", expand=True, padx=(0, 8))
+        ctk.CTkLabel(pathbar, textvariable=self.excel_var, anchor="e").pack(side=RIGHT, fill="x", expand=True)
+
+        main = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
         main.pack(side=TOP, fill=BOTH, expand=True)
 
-        canvas_frame = Frame(main)
-        canvas_frame.pack(side=LEFT, fill=BOTH, expand=True)
+        canvas_frame = ctk.CTkFrame(main, corner_radius=8)
+        canvas_frame.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 6), pady=(0, 10))
 
         self.canvas = Canvas(canvas_frame, bg="#2b2f36", highlightthickness=0)
         hbar = Scrollbar(canvas_frame, orient=HORIZONTAL, command=self.canvas.xview)
@@ -161,34 +176,34 @@ class ImageOcrExcelApp:
         self.canvas.bind("<Control-MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
 
-        side = Frame(main, width=340)
-        side.pack(side=RIGHT, fill="y", padx=(8, 0))
+        side = ctk.CTkFrame(main, width=360, corner_radius=8)
+        side.pack(side=RIGHT, fill="y", padx=(6, 10), pady=(0, 10))
         side.pack_propagate(False)
 
-        region_box = LabelFrame(side, text="取得範囲とセル", padx=8, pady=8)
+        region_box = ctk.CTkFrame(side, corner_radius=8)
         region_box.pack(side=TOP, fill=BOTH, expand=True)
+        ctk.CTkLabel(region_box, text="取得範囲とセル", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(12, 8))
 
-        self.region_list = Listbox(region_box, height=12, exportselection=False)
-        self.region_list.pack(side=TOP, fill=BOTH, expand=True)
+        self.region_list = Listbox(region_box, height=12, exportselection=False, borderwidth=0, highlightthickness=1)
+        self.region_list.pack(side=TOP, fill=BOTH, expand=True, padx=12)
         self.region_list.bind("<<ListboxSelect>>", self.on_region_select)
 
-        btns = Frame(region_box, pady=6)
-        btns.pack(side=TOP, fill="x")
-        Button(btns, text="セル変更", command=self.edit_cell).pack(side=LEFT, padx=(0, 4))
-        Button(btns, text="名前変更", command=self.edit_name).pack(side=LEFT, padx=(0, 4))
-        Button(btns, text="削除", command=self.delete_region).pack(side=LEFT)
+        btns = ctk.CTkFrame(region_box, fg_color="transparent")
+        btns.pack(side=TOP, fill="x", padx=12, pady=8)
+        ctk.CTkButton(btns, text="セル", command=self.edit_cell, width=70).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(btns, text="名前", command=self.edit_name, width=70, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=4)
+        ctk.CTkButton(btns, text="削除", command=self.delete_region, width=70, fg_color="#dc2626", hover_color="#b91c1c").pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
 
-        Label(region_box, text="OCR結果 / Excelへ書き込む値", anchor="w").pack(side=TOP, fill="x")
-        self.text_edit = ttk.Frame(region_box)
-        self.text_edit.pack(side=TOP, fill=BOTH, expand=False)
-        self.text_box = ttk.Entry(self.text_edit)
+        ctk.CTkLabel(region_box, text="OCR結果 / Excelへ書き込む値", anchor="w").pack(side=TOP, fill="x", padx=12)
+        self.text_edit = ctk.CTkFrame(region_box, fg_color="transparent")
+        self.text_edit.pack(side=TOP, fill=BOTH, expand=False, padx=12, pady=(4, 12))
+        self.text_box = ctk.CTkEntry(self.text_edit)
         self.text_box.pack(side=LEFT, fill="x", expand=True)
-        Button(self.text_edit, text="反映", command=self.apply_text_edit).pack(side=LEFT, padx=(4, 0))
+        ctk.CTkButton(self.text_edit, text="反映", command=self.apply_text_edit, width=64).pack(side=LEFT, padx=(6, 0))
 
-        info = LabelFrame(side, text="操作", padx=8, pady=8)
+        info = ctk.CTkFrame(side, corner_radius=8)
         info.pack(side=BOTTOM, fill="x", pady=(8, 0))
-        Label(info, text="ドラッグ: 範囲追加 / Ctrl+ホイール: 拡大縮小", anchor="w").pack(fill="x")
-        Label(info, textvariable=self.status_var, anchor="w", wraplength=310, justify=LEFT).pack(fill="x", pady=(6, 0))
+        ctk.CTkLabel(info, text="ドラッグ: 範囲追加 / Ctrl+ホイール: 拡大縮小", anchor="w").pack(fill="x", padx=12, pady=12)
 
     def _detect_tesseract(self) -> str:
         found = shutil.which("tesseract")
@@ -225,6 +240,7 @@ class ImageOcrExcelApp:
         self.excel_path = Path(file_name)
         self.excel_var.set(str(self.excel_path))
         self.excel_target_mode = "file"
+        self.excel_mode_var.set("ファイル出力")
 
     def refresh_open_excel(self, silent: bool = False) -> None:
         excel = self._get_excel_app(show_error=not silent)
@@ -251,10 +267,10 @@ class ImageOcrExcelApp:
             return
 
         self.open_excel_books = books
-        self.book_combo["values"] = [str(book["display"]) for book in books]
+        self.book_combo.configure(values=[str(book["display"]) for book in books])
         if not books:
             self.open_book_var.set("")
-            self.sheet_combo["values"] = []
+            self.sheet_combo.configure(values=[])
             self.status_var.set("開いているExcelブックがありません。")
             if not silent:
                 messagebox.showinfo("Excel未検出", "開いているExcelブックがありません。")
@@ -271,14 +287,21 @@ class ImageOcrExcelApp:
     def on_open_book_select(self, _event=None) -> None:
         book = self._selected_open_book()
         if not book:
-            self.sheet_combo["values"] = []
+            self.sheet_combo.configure(values=[])
             return
         sheets = list(book["sheets"])
-        self.sheet_combo["values"] = sheets
+        self.sheet_combo.configure(values=sheets)
         if self.sheet_var.get() not in sheets:
             self.sheet_var.set(str(book.get("active_sheet") or sheets[0]))
         self.excel_target_mode = "open"
+        self.excel_mode_var.set("開いているExcel")
         self.excel_var.set(f"開いているExcel: {book['display']}")
+
+    def on_excel_mode_change(self, value: str) -> None:
+        if value == "開いているExcel":
+            self.use_open_excel()
+        else:
+            self.use_file_excel()
 
     def use_open_excel(self, show_message: bool = True) -> None:
         if not self.open_excel_books:
@@ -287,12 +310,14 @@ class ImageOcrExcelApp:
         if not book:
             return
         self.excel_target_mode = "open"
+        self.excel_mode_var.set("開いているExcel")
         self.excel_var.set(f"開いているExcel: {book['display']}")
         if show_message:
             self.status_var.set("開いているExcelへ反映する設定にしました。")
 
     def use_file_excel(self) -> None:
         self.excel_target_mode = "file"
+        self.excel_mode_var.set("ファイル出力")
         self.excel_var.set(str(self.excel_path) if self.excel_path else "Excel未選択")
         self.status_var.set("Excelファイルへ保存する設定にしました。")
 
@@ -702,6 +727,7 @@ class ImageOcrExcelApp:
             self.excel_path = Path(data["excel_path"])
             self.excel_var.set(str(self.excel_path))
         self.excel_target_mode = data.get("excel_target_mode") or "file"
+        self.excel_mode_var.set("開いているExcel" if self.excel_target_mode == "open" else "ファイル出力")
         if data.get("open_book"):
             self.open_book_var.set(data["open_book"])
         self.sheet_var.set(data.get("sheet") or "Sheet1")
@@ -714,7 +740,7 @@ class ImageOcrExcelApp:
 
 
 def main() -> None:
-    root = Tk()
+    root = ctk.CTk()
     ImageOcrExcelApp(root)
     root.mainloop()
 
