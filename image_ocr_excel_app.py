@@ -83,6 +83,7 @@ class ImageOcrExcelApp:
         self.image_item: int | None = None
         self.drag_start: tuple[int, int] | None = None
         self.drag_rect: int | None = None
+        self.reselect_region_index: int | None = None
 
         self.image_var = StringVar(value="画像未選択")
         self.excel_var = StringVar(value="Excel未選択")
@@ -188,7 +189,7 @@ class ImageOcrExcelApp:
         btns = ctk.CTkFrame(region_box, fg_color="transparent")
         btns.pack(side=TOP, fill="x", padx=12, pady=8)
         ctk.CTkButton(btns, text="セル", command=self.edit_cell, width=70).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
-        ctk.CTkButton(btns, text="名前", command=self.edit_name, width=70, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=4)
+        ctk.CTkButton(btns, text="範囲", command=self.reselect_region, width=70, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=4)
         ctk.CTkButton(btns, text="削除", command=self.delete_region, width=70, fg_color="#dc2626", hover_color="#b91c1c").pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
 
         info = ctk.CTkFrame(side, corner_radius=8)
@@ -385,6 +386,24 @@ class ImageOcrExcelApp:
         if (x2 - x1) < 8 or (y2 - y1) < 8:
             return
 
+        if self.reselect_region_index is not None:
+            idx = self.reselect_region_index
+            self.reselect_region_index = None
+            if not (0 <= idx < len(self.regions)):
+                return
+            region = self.regions[idx]
+            region.x1 = x1
+            region.y1 = y1
+            region.x2 = x2
+            region.y2 = y2
+            region.text = ""
+            self.selected_index = idx
+            self.refresh_region_list()
+            self.redraw()
+            self._ocr_region(idx)
+            self.refresh_region_list()
+            return
+
         default_cell = f"A{len(self.regions) + 1}"
         cell = simpledialog.askstring("セル指定", "この範囲を書き込むセルを入力してください。", initialvalue=default_cell)
         if cell is None:
@@ -467,15 +486,12 @@ class ImageOcrExcelApp:
         self._ocr_region(idx)
         self.refresh_region_list()
 
-    def edit_name(self) -> None:
+    def reselect_region(self) -> None:
         idx = self._require_selection()
         if idx is None:
             return
-        name = simpledialog.askstring("名前変更", "範囲名を入力してください。", initialvalue=self.regions[idx].name)
-        if not name:
-            return
-        self.regions[idx].name = name.strip()
-        self.refresh_region_list()
+        self.reselect_region_index = idx
+        self.status_var.set(f"{self.regions[idx].name} の範囲を再設定します。画像上で新しい範囲をドラッグしてください。")
 
     def delete_region(self) -> None:
         idx = self._require_selection()
