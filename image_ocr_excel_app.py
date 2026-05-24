@@ -43,6 +43,11 @@ try:
 except ImportError:
     pytesseract = None
 
+try:
+    import win32com.client
+except ImportError:
+    win32com = None
+
 
 APP_TITLE = "Image OCR to Excel"
 DEFAULT_LANG = "jpn+eng"
@@ -74,6 +79,8 @@ class ImageOcrExcelApp:
 
         self.image_path: Path | None = None
         self.excel_path: Path | None = None
+        self.open_excel_books: list[dict[str, object]] = []
+        self.excel_target_mode = "file"
         self.original_image: Image.Image | None = None
         self.preview_image: ImageTk.PhotoImage | None = None
         self.regions: list[Region] = []
@@ -88,6 +95,7 @@ class ImageOcrExcelApp:
 
         self.image_var = StringVar(value="画像未選択")
         self.excel_var = StringVar(value="Excel未選択")
+        self.open_book_var = StringVar(value="")
         self.sheet_var = StringVar(value="Sheet1")
         self.lang_var = StringVar(value=DEFAULT_LANG)
         self.tesseract_var = StringVar(value=self._detect_tesseract())
@@ -101,11 +109,10 @@ class ImageOcrExcelApp:
 
         Button(toolbar, text="画像を開く", command=self.open_image).pack(side=LEFT, padx=(0, 6))
         Button(toolbar, text="Excelを選択", command=self.select_excel).pack(side=LEFT, padx=(0, 6))
+        Button(toolbar, text="開いているExcel更新", command=self.refresh_open_excel).pack(side=LEFT, padx=(0, 6))
         Button(toolbar, text="設定保存", command=self.save_mapping).pack(side=LEFT, padx=(0, 6))
         Button(toolbar, text="設定読込", command=self.load_mapping).pack(side=LEFT, padx=(0, 12))
 
-        Label(toolbar, text="シート").pack(side=LEFT)
-        Entry(toolbar, textvariable=self.sheet_var, width=16).pack(side=LEFT, padx=(4, 12))
         Label(toolbar, text="OCR言語").pack(side=LEFT)
         Entry(toolbar, textvariable=self.lang_var, width=10).pack(side=LEFT, padx=(4, 12))
         Label(toolbar, text="Tesseract").pack(side=LEFT)
@@ -114,6 +121,18 @@ class ImageOcrExcelApp:
         Button(toolbar, text="選択範囲をOCR", command=self.ocr_selected).pack(side=LEFT, padx=(0, 6))
         Button(toolbar, text="全範囲をOCR", command=self.ocr_all).pack(side=LEFT, padx=(0, 6))
         Button(toolbar, text="Excelへ反映", command=self.write_excel).pack(side=LEFT)
+
+        excelbar = Frame(self.root, padx=8)
+        excelbar.pack(side=TOP, fill="x")
+        Label(excelbar, text="開いているブック").pack(side=LEFT)
+        self.book_combo = ttk.Combobox(excelbar, textvariable=self.open_book_var, width=42, state="readonly")
+        self.book_combo.pack(side=LEFT, padx=(4, 12))
+        self.book_combo.bind("<<ComboboxSelected>>", self.on_open_book_select)
+        Label(excelbar, text="シート").pack(side=LEFT)
+        self.sheet_combo = ttk.Combobox(excelbar, textvariable=self.sheet_var, width=24)
+        self.sheet_combo.pack(side=LEFT, padx=(4, 12))
+        Button(excelbar, text="開いているExcelを使用", command=self.use_open_excel).pack(side=LEFT, padx=(0, 6))
+        Button(excelbar, text="ファイル出力を使用", command=self.use_file_excel).pack(side=LEFT)
 
         pathbar = Frame(self.root, padx=8)
         pathbar.pack(side=TOP, fill="x")
@@ -205,6 +224,73 @@ class ImageOcrExcelApp:
             return
         self.excel_path = Path(file_name)
         self.excel_var.set(str(self.excel_path))
+        self.excel_target_mode = "file"
+
+    def refresh_open_excel(self, silent: bool = False) -> None:
+        excel = self._get_excel_app(show_error=not silent)
+        if excel is None:
+            return
+
+        books: list[dict[str, object]] = []
+        try:
+            for book in excel.Workbooks:
+                sheets = [sheet.Name for sheet in book.Worksheets]
+                full_name = str(book.FullName) if str(book.Path) else ""
+                display = f"{book.Name} ({full_name})" if full_name else f"{book.Name} (未保存)"
+                books.append(
+                    {
+                        "name": str(book.Name),
+                        "full_name": full_name,
+                        "display": display,
+                        "sheets": sheets,
+                        "active_sheet": str(book.ActiveSheet.Name),
+                    }
+                )
+        except Exception as exc:
+            messagebox.showerror("Excel取得エラー", f"開いているExcelブックを取得できませんでした。\n{exc}")
+            return
+
+        self.open_excel_books = books
+        self.book_combo["values"] = [str(book["display"]) for book in books]
+        if not books:
+            self.open_book_var.set("")
+            self.sheet_combo["values"] = []
+            self.status_var.set("開いているExcelブックがありません。")
+            if not silent:
+                messagebox.showinfo("Excel未検出", "開いているExcelブックがありません。")
+            return
+
+        current = self.open_book_var.get()
+        displays = [str(book["display"]) for book in books]
+        if current not in displays:
+            self.open_book_var.set(displays[0])
+        self.on_open_book_select()
+        self.status_var.set("開いているExcelブックを取得しました。")
+
+    def on_open_book_select(self, _event=None) -> None:
+        book = self._selected_open_book()
+        if not book:
+            self.sheet_combo["values"] = []
+            return
+        sheets = list(book["sheets"])
+        self.sheet_combo["values"] = sheets
+        if self.sheet_var.get() not in sheets:
+            self.sheet_var.set(str(book.get("active_sheet") or sheets[0]))
+
+    def use_open_excel(self) -> None:
+        if not self.open_excel_books:
+            self.refresh_open_excel()
+        book = self._selected_open_book()
+        if not book:
+            return
+        self.excel_target_mode = "open"
+        self.excel_var.set(f"開いているExcel: {book['display']}")
+        self.status_var.set("開いているExcelへ反映する設定にしました。")
+
+    def use_file_excel(self) -> None:
+        self.excel_target_mode = "file"
+        self.excel_var.set(str(self.excel_path) if self.excel_path else "Excel未選択")
+        self.status_var.set("Excelファイルへ保存する設定にしました。")
 
     def _initial_zoom(self) -> float:
         if not self.original_image:
@@ -454,6 +540,9 @@ class ImageOcrExcelApp:
         return " ".join(lines).strip()
 
     def write_excel(self) -> None:
+        if self.excel_target_mode == "open":
+            self.write_open_excel()
+            return
         if not self.excel_path:
             messagebox.showerror("Excel未選択", "先にExcelファイルを選択してください。")
             return
@@ -491,6 +580,78 @@ class ImageOcrExcelApp:
         self.status_var.set(f"Excelへ反映しました: {self.excel_path}")
         messagebox.showinfo("完了", "Excelへの反映が完了しました。")
 
+    def write_open_excel(self) -> None:
+        if not self.regions:
+            messagebox.showerror("範囲なし", "先に取得範囲を作成してください。")
+            return
+
+        book_info = self._selected_open_book()
+        if not book_info:
+            messagebox.showerror("Excel未選択", "開いているブックを選択してください。")
+            return
+
+        empty = [region.name for region in self.regions if not region.text.strip()]
+        if empty:
+            proceed = messagebox.askyesno("未OCRの範囲があります", "空の値がある範囲があります。このままExcelへ反映しますか？")
+            if not proceed:
+                return
+
+        excel = self._get_excel_app(show_error=True)
+        if excel is None:
+            return
+
+        try:
+            workbook = self._find_open_workbook(excel, book_info)
+            if workbook is None:
+                messagebox.showerror("Excel未検出", "選択したブックが見つかりません。更新ボタンで再取得してください。")
+                return
+
+            sheet_name = self.sheet_var.get().strip() or str(book_info.get("active_sheet") or "")
+            worksheet = workbook.Worksheets(sheet_name)
+            for region in self.regions:
+                if not self._valid_cell(region.cell):
+                    messagebox.showerror("セル指定エラー", f"{region.name} のセル指定が不正です: {region.cell}")
+                    return
+                worksheet.Range(region.cell).Value = region.text.strip()
+            worksheet.Activate()
+            workbook.Activate()
+        except Exception as exc:
+            messagebox.showerror("Excel反映エラー", f"開いているExcelへ反映できませんでした。\n{exc}")
+            return
+
+        self.status_var.set(f"開いているExcelへ反映しました: {book_info['name']} / {self.sheet_var.get()}")
+        messagebox.showinfo("完了", "開いているExcelへの反映が完了しました。保存はExcel側で行ってください。")
+
+    def _get_excel_app(self, show_error: bool):
+        if win32com is None:
+            if show_error:
+                messagebox.showerror("Excel連携ライブラリ未導入", "pywin32がインストールされていません。uv sync を実行してください。")
+            return None
+        try:
+            return win32com.client.GetActiveObject("Excel.Application")
+        except Exception:
+            if show_error:
+                messagebox.showerror("Excel未起動", "起動中のExcelを取得できませんでした。Excelで対象ブックを開いてから再実行してください。")
+            return None
+
+    def _selected_open_book(self) -> dict[str, object] | None:
+        display = self.open_book_var.get()
+        for book in self.open_excel_books:
+            if book["display"] == display:
+                return book
+        return None
+
+    def _find_open_workbook(self, excel, book_info: dict[str, object]):
+        target_full_name = str(book_info.get("full_name") or "")
+        target_name = str(book_info.get("name") or "")
+        for workbook in excel.Workbooks:
+            full_name = str(workbook.FullName) if str(workbook.Path) else ""
+            if target_full_name and full_name == target_full_name:
+                return workbook
+            if not target_full_name and str(workbook.Name) == target_name:
+                return workbook
+        return None
+
     def save_mapping(self) -> None:
         if not self.regions:
             messagebox.showinfo("範囲なし", "保存する範囲がありません。")
@@ -505,6 +666,8 @@ class ImageOcrExcelApp:
         data = {
             "image_path": str(self.image_path) if self.image_path else "",
             "excel_path": str(self.excel_path) if self.excel_path else "",
+            "excel_target_mode": self.excel_target_mode,
+            "open_book": self.open_book_var.get(),
             "sheet": self.sheet_var.get(),
             "lang": self.lang_var.get(),
             "regions": [asdict(region.normalized()) for region in self.regions],
@@ -528,6 +691,9 @@ class ImageOcrExcelApp:
         if data.get("excel_path"):
             self.excel_path = Path(data["excel_path"])
             self.excel_var.set(str(self.excel_path))
+        self.excel_target_mode = data.get("excel_target_mode") or "file"
+        if data.get("open_book"):
+            self.open_book_var.set(data["open_book"])
         self.sheet_var.set(data.get("sheet") or "Sheet1")
         self.lang_var.set(data.get("lang") or DEFAULT_LANG)
         self.regions = [Region(**item).normalized() for item in data.get("regions", [])]
