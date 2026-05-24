@@ -265,6 +265,7 @@ class ImageOcrExcelApp:
         if current not in displays:
             self.open_book_var.set(displays[0])
         self.on_open_book_select()
+        self.use_open_excel(show_message=False)
         self.status_var.set("開いているExcelブックを取得しました。")
 
     def on_open_book_select(self, _event=None) -> None:
@@ -276,8 +277,10 @@ class ImageOcrExcelApp:
         self.sheet_combo["values"] = sheets
         if self.sheet_var.get() not in sheets:
             self.sheet_var.set(str(book.get("active_sheet") or sheets[0]))
+        self.excel_target_mode = "open"
+        self.excel_var.set(f"開いているExcel: {book['display']}")
 
-    def use_open_excel(self) -> None:
+    def use_open_excel(self, show_message: bool = True) -> None:
         if not self.open_excel_books:
             self.refresh_open_excel()
         book = self._selected_open_book()
@@ -285,7 +288,8 @@ class ImageOcrExcelApp:
             return
         self.excel_target_mode = "open"
         self.excel_var.set(f"開いているExcel: {book['display']}")
-        self.status_var.set("開いているExcelへ反映する設定にしました。")
+        if show_message:
+            self.status_var.set("開いているExcelへ反映する設定にしました。")
 
     def use_file_excel(self) -> None:
         self.excel_target_mode = "file"
@@ -585,6 +589,9 @@ class ImageOcrExcelApp:
             messagebox.showerror("範囲なし", "先に取得範囲を作成してください。")
             return
 
+        if not self.open_excel_books:
+            self.refresh_open_excel()
+
         book_info = self._selected_open_book()
         if not book_info:
             messagebox.showerror("Excel未選択", "開いているブックを選択してください。")
@@ -608,19 +615,22 @@ class ImageOcrExcelApp:
 
             sheet_name = self.sheet_var.get().strip() or str(book_info.get("active_sheet") or "")
             worksheet = workbook.Worksheets(sheet_name)
+            written_cells = []
             for region in self.regions:
                 if not self._valid_cell(region.cell):
                     messagebox.showerror("セル指定エラー", f"{region.name} のセル指定が不正です: {region.cell}")
                     return
                 worksheet.Range(region.cell).Value = region.text.strip()
+                written_cells.append(region.cell)
             worksheet.Activate()
             workbook.Activate()
         except Exception as exc:
             messagebox.showerror("Excel反映エラー", f"開いているExcelへ反映できませんでした。\n{exc}")
             return
 
-        self.status_var.set(f"開いているExcelへ反映しました: {book_info['name']} / {self.sheet_var.get()}")
-        messagebox.showinfo("完了", "開いているExcelへの反映が完了しました。保存はExcel側で行ってください。")
+        cells = ", ".join(written_cells)
+        self.status_var.set(f"開いているExcelへ反映しました: {book_info['name']} / {self.sheet_var.get()} / {cells}")
+        messagebox.showinfo("完了", f"開いているExcelへ{len(written_cells)}セル反映しました。\n反映先: {book_info['name']} / {self.sheet_var.get()}\nセル: {cells}\n保存はExcel側で行ってください。")
 
     def _get_excel_app(self, show_error: bool):
         if win32com is None:
