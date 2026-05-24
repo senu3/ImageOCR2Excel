@@ -1,0 +1,17 @@
+[project]
+name = "image-ocr-to-excel"
+version = "0.1.0"
+description = "Select OCR regions on an image preview and write recognized text to Excel cells."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1.0",
+    "pillow>=10.0.0",
+    "pytesseract>=0.3.10",
+]
+
+[project.scripts]
+image-ocr-to-excel = "image_ocr_excel_app:main"
+
+[tool.uv]
+package = false
