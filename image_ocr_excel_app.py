@@ -41,6 +41,7 @@ except ImportError:
 APP_TITLE = "Image OCR to Excel"
 DEFAULT_LANG = "jpn+eng"
 CELL_RE = re.compile(r"^[A-Za-z]{1,3}[1-9][0-9]*$")
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 
 @dataclass
@@ -68,6 +69,8 @@ class ImageOcrExcelApp:
         self.root.minsize(980, 640)
 
         self.image_path: Path | None = None
+        self.image_files: list[Path] = []
+        self.current_image_index: int = -1
         self.excel_path: Path | None = None
         self.open_excel_books: list[dict[str, object]] = []
         self.excel_target_mode = "open"
@@ -95,6 +98,7 @@ class ImageOcrExcelApp:
         self.status_var = StringVar(value="画像を開き、範囲をドラッグしてください。")
 
         self._build_ui()
+        self._bind_shortcuts()
 
     def _build_ui(self) -> None:
         ctk.set_appearance_mode("light")
@@ -109,7 +113,16 @@ class ImageOcrExcelApp:
         image_panel = ctk.CTkFrame(top, corner_radius=8)
         image_panel.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
         ctk.CTkLabel(image_panel, text="画像", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 6))
-        ctk.CTkButton(image_panel, text="画像を開く", command=self.open_image).pack(fill="x", padx=12)
+        image_row = ctk.CTkFrame(image_panel, fg_color="transparent")
+        image_row.pack(fill="x", padx=12)
+        ctk.CTkButton(image_row, text="画像", command=self.open_image).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(image_row, text="フォルダ", command=self.open_image_folder, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
+        nav_row = ctk.CTkFrame(image_panel, fg_color="transparent")
+        nav_row.pack(fill="x", padx=12, pady=(8, 0))
+        ctk.CTkButton(nav_row, text="◁", command=self.previous_image, width=54).pack(side=LEFT, padx=(0, 6))
+        self.image_count_var = StringVar(value="0 / 0")
+        ctk.CTkLabel(nav_row, textvariable=self.image_count_var, anchor="center").pack(side=LEFT, fill="x", expand=True)
+        ctk.CTkButton(nav_row, text="▷", command=self.next_image, width=54).pack(side=LEFT, padx=(6, 0))
         mapping_row = ctk.CTkFrame(image_panel, fg_color="transparent")
         mapping_row.pack(fill="x", padx=12, pady=(8, 10))
         ctk.CTkButton(mapping_row, text="設定読込", command=self.load_mapping, width=92).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
@@ -194,7 +207,7 @@ class ImageOcrExcelApp:
 
         info = ctk.CTkFrame(side, corner_radius=8)
         info.pack(side=BOTTOM, fill="x", pady=(8, 0))
-        ctk.CTkLabel(info, text="ドラッグ: 範囲追加 / Ctrl+ホイール: 拡大縮小", anchor="w").pack(fill="x", padx=12, pady=12)
+        ctk.CTkLabel(info, text="ドラッグ: 範囲追加 / Ctrl+ホイール: 拡大縮小\nCtrl+←/→: 画像切替 / Ctrl+Enter: Excel反映", anchor="w", justify="left").pack(fill="x", padx=12, pady=12)
 
     def _detect_tesseract(self) -> str:
         found = shutil.which("tesseract")
@@ -202,6 +215,11 @@ class ImageOcrExcelApp:
             return found
         default = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
         return str(default) if default.exists() else ""
+
+    def _bind_shortcuts(self) -> None:
+        self.root.bind_all("<Control-Left>", self.previous_image)
+        self.root.bind_all("<Control-Right>", self.next_image)
+        self.root.bind_all("<Control-Return>", self.write_excel)
 
     def open_image(self) -> None:
         file_name = filedialog.askopenfilename(
@@ -213,12 +231,67 @@ class ImageOcrExcelApp:
         )
         if not file_name:
             return
-        self.image_path = Path(file_name)
+        self.image_files = [Path(file_name)]
+        self.current_image_index = 0
+        self._load_current_image(auto_ocr=False)
+
+    def open_image_folder(self) -> None:
+        folder_name = filedialog.askdirectory(title="画像フォルダを選択")
+        if not folder_name:
+            return
+        folder = Path(folder_name)
+        files = sorted(path for path in folder.iterdir() if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS)
+        if not files:
+            messagebox.showinfo("画像なし", "選択したフォルダ内に対応画像がありません。")
+            return
+        self.image_files = files
+        self.current_image_index = 0
+        self._load_current_image(auto_ocr=bool(self.regions))
+
+    def previous_image(self, _event=None) -> None:
+        if len(self.image_files) <= 1:
+            return
+        self.current_image_index = (self.current_image_index - 1) % len(self.image_files)
+        self._load_current_image(auto_ocr=True)
+
+    def next_image(self, _event=None) -> None:
+        if len(self.image_files) <= 1:
+            return
+        self.current_image_index = (self.current_image_index + 1) % len(self.image_files)
+        self._load_current_image(auto_ocr=True)
+
+    def _load_current_image(self, auto_ocr: bool) -> None:
+        if not (0 <= self.current_image_index < len(self.image_files)):
+            return
+        self.image_path = self.image_files[self.current_image_index]
         self.original_image = Image.open(self.image_path).convert("RGB")
         self.zoom = self._initial_zoom()
-        self.image_var.set(str(self.image_path))
+        self.image_var.set(self._image_status_text())
+        self.image_count_var.set(f"{self.current_image_index + 1} / {len(self.image_files)}")
+        self.reselect_region_index = None
         self.redraw()
-        self.status_var.set("画像を読み込みました。OCRしたい文字部分をドラッグしてください。")
+        if auto_ocr and self.regions:
+            self._rerun_ocr_for_all_regions()
+        else:
+            self.status_var.set("画像を読み込みました。OCRしたい文字部分をドラッグしてください。")
+
+    def _image_status_text(self) -> str:
+        if not self.image_path:
+            return "画像未選択"
+        if len(self.image_files) > 1:
+            return f"{self.current_image_index + 1}/{len(self.image_files)}: {self.image_path}"
+        return str(self.image_path)
+
+    def _rerun_ocr_for_all_regions(self) -> None:
+        for region in self.regions:
+            region.text = ""
+        self.refresh_region_list()
+        for idx in range(len(self.regions)):
+            if not self._ocr_region(idx):
+                self.refresh_region_list()
+                return
+        self.refresh_region_list()
+        self.status_var.set(f"画像切替に合わせてOCRを再実行しました: {self.current_image_index + 1} / {len(self.image_files)}")
 
     def select_excel(self) -> None:
         file_name = filedialog.asksaveasfilename(
@@ -598,7 +671,7 @@ class ImageOcrExcelApp:
         self.refresh_region_list()
         return True
 
-    def write_excel(self) -> None:
+    def write_excel(self, _event=None) -> None:
         if self.excel_target_mode == "open":
             self.write_open_excel()
             return
@@ -751,10 +824,9 @@ class ImageOcrExcelApp:
             return
         data = json.loads(Path(file_name).read_text(encoding="utf-8"))
         if data.get("image_path") and Path(data["image_path"]).exists():
-            self.image_path = Path(data["image_path"])
-            self.original_image = Image.open(self.image_path).convert("RGB")
-            self.zoom = self._initial_zoom()
-            self.image_var.set(str(self.image_path))
+            self.image_files = [Path(data["image_path"])]
+            self.current_image_index = 0
+            self._load_current_image(auto_ocr=False)
         if data.get("excel_path"):
             self.excel_path = Path(data["excel_path"])
             self.excel_var.set(str(self.excel_path))
