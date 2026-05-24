@@ -8,14 +8,13 @@ from pathlib import Path
 from tkinter import (
     BOTH,
     BOTTOM,
-    END,
+    BooleanVar,
     HORIZONTAL,
     LEFT,
     RIGHT,
     TOP,
     VERTICAL,
     Canvas,
-    Listbox,
     Scrollbar,
     StringVar,
     filedialog,
@@ -53,11 +52,12 @@ class Region:
     x2: int
     y2: int
     text: str = ""
+    enabled: bool = True
 
     def normalized(self) -> "Region":
         x1, x2 = sorted((self.x1, self.x2))
         y1, y2 = sorted((self.y1, self.y2))
-        return Region(self.name, self.cell, x1, y1, x2, y2, self.text)
+        return Region(self.name, self.cell, x1, y1, x2, y2, self.text, self.enabled)
 
 
 class ImageOcrExcelApp:
@@ -76,6 +76,7 @@ class ImageOcrExcelApp:
         self.regions: list[Region] = []
         self.canvas_rects: dict[int, int] = {}
         self.canvas_labels: dict[int, int] = {}
+        self.region_check_vars: list[BooleanVar] = []
         self.selected_index: int | None = None
 
         self.zoom = 1.0
@@ -134,12 +135,9 @@ class ImageOcrExcelApp:
 
         ocr_panel = ctk.CTkFrame(top, corner_radius=8)
         ocr_panel.grid(row=0, column=2, sticky="nsew", padx=(5, 10), pady=10)
-        ctk.CTkLabel(ocr_panel, text="OCR / 反映", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 6))
-        ocr_row = ctk.CTkFrame(ocr_panel, fg_color="transparent")
-        ocr_row.pack(fill="x", padx=12)
-        ctk.CTkButton(ocr_row, text="選択OCR", command=self.ocr_selected).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
-        ctk.CTkButton(ocr_row, text="全OCR", command=self.ocr_all).pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
-        ctk.CTkButton(ocr_panel, text="Excelへ反映", command=self.write_excel, height=36, fg_color="#16a34a", hover_color="#15803d").pack(fill="x", padx=12, pady=(8, 10))
+        ctk.CTkLabel(ocr_panel, text="反映", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(10, 6))
+        ctk.CTkLabel(ocr_panel, text="チェック済み範囲をOCRしてExcelへ書き込みます。", anchor="w").pack(fill="x", padx=12)
+        ctk.CTkButton(ocr_panel, text="OCRしてExcelへ反映", command=self.write_excel, height=40, fg_color="#16a34a", hover_color="#15803d").pack(fill="x", padx=12, pady=(10, 10))
 
         settings = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
         settings.pack(side=TOP, fill="x", padx=10, pady=(0, 6))
@@ -184,22 +182,14 @@ class ImageOcrExcelApp:
         region_box.pack(side=TOP, fill=BOTH, expand=True)
         ctk.CTkLabel(region_box, text="取得範囲とセル", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=12, pady=(12, 8))
 
-        self.region_list = Listbox(region_box, height=12, exportselection=False, borderwidth=0, highlightthickness=1)
-        self.region_list.pack(side=TOP, fill=BOTH, expand=True, padx=12)
-        self.region_list.bind("<<ListboxSelect>>", self.on_region_select)
+        self.region_list_frame = ctk.CTkScrollableFrame(region_box, corner_radius=6)
+        self.region_list_frame.pack(side=TOP, fill=BOTH, expand=True, padx=12)
 
         btns = ctk.CTkFrame(region_box, fg_color="transparent")
         btns.pack(side=TOP, fill="x", padx=12, pady=8)
         ctk.CTkButton(btns, text="セル", command=self.edit_cell, width=70).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
         ctk.CTkButton(btns, text="名前", command=self.edit_name, width=70, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=4)
         ctk.CTkButton(btns, text="削除", command=self.delete_region, width=70, fg_color="#dc2626", hover_color="#b91c1c").pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
-
-        ctk.CTkLabel(region_box, text="OCR結果 / Excelへ書き込む値", anchor="w").pack(side=TOP, fill="x", padx=12)
-        self.text_edit = ctk.CTkFrame(region_box, fg_color="transparent")
-        self.text_edit.pack(side=TOP, fill=BOTH, expand=False, padx=12, pady=(4, 12))
-        self.text_box = ctk.CTkEntry(self.text_edit)
-        self.text_box.pack(side=LEFT, fill="x", expand=True)
-        ctk.CTkButton(self.text_edit, text="反映", command=self.apply_text_edit, width=64).pack(side=LEFT, padx=(6, 0))
 
         info = ctk.CTkFrame(side, corner_radius=8)
         info.pack(side=BOTTOM, fill="x", pady=(8, 0))
@@ -409,6 +399,8 @@ class ImageOcrExcelApp:
         self.selected_index = len(self.regions) - 1
         self.refresh_region_list()
         self.redraw()
+        self._ocr_region(self.selected_index)
+        self.refresh_region_list()
 
     def on_mouse_wheel(self, event) -> None:
         if not self.original_image:
@@ -421,27 +413,42 @@ class ImageOcrExcelApp:
         self.zoom = max(0.1, min(4.0, self.zoom * factor))
         self.redraw()
 
-    def on_region_select(self, _event=None) -> None:
-        selection = self.region_list.curselection()
-        if not selection:
-            self.selected_index = None
-            self.text_box.delete(0, END)
-            self.redraw()
-            return
-        self.selected_index = selection[0]
-        self.text_box.delete(0, END)
-        self.text_box.insert(0, self.regions[self.selected_index].text)
+    def select_region(self, idx: int) -> None:
+        self.selected_index = idx
+        self.refresh_region_list()
         self.redraw()
 
     def refresh_region_list(self) -> None:
-        self.region_list.delete(0, END)
+        for child in self.region_list_frame.winfo_children():
+            child.destroy()
+        self.region_check_vars = []
         for idx, region in enumerate(self.regions):
             text = region.text.replace("\n", " ").strip()
-            suffix = f" = {text}" if text else ""
-            self.region_list.insert(END, f"{idx + 1}. {region.name} -> {region.cell}{suffix}")
-        if self.selected_index is not None and 0 <= self.selected_index < len(self.regions):
-            self.region_list.selection_set(self.selected_index)
-            self.region_list.see(self.selected_index)
+            suffix = f"  {text}" if text else "  未OCR"
+            row_color = "#dbeafe" if idx == self.selected_index else "transparent"
+            row = ctk.CTkFrame(self.region_list_frame, fg_color=row_color, corner_radius=6)
+            row.pack(fill="x", pady=2)
+            row.grid_columnconfigure(1, weight=1)
+            var = BooleanVar(value=region.enabled)
+            self.region_check_vars.append(var)
+            checkbox = ctk.CTkCheckBox(
+                row,
+                text="",
+                variable=var,
+                width=28,
+                command=lambda i=idx, v=var: self.set_region_enabled(i, v.get()),
+            )
+            checkbox.grid(row=0, column=0, rowspan=2, padx=(8, 2), pady=8)
+            title = ctk.CTkLabel(row, text=f"{idx + 1}. {region.name} -> {region.cell}", anchor="w")
+            title.grid(row=0, column=1, sticky="ew", padx=(2, 8), pady=(6, 0))
+            value = ctk.CTkLabel(row, text=suffix.strip(), anchor="w", text_color="#475569")
+            value.grid(row=1, column=1, sticky="ew", padx=(2, 8), pady=(0, 6))
+            for widget in (row, title, value):
+                widget.bind("<Button-1>", lambda _event, i=idx: self.select_region(i))
+
+    def set_region_enabled(self, idx: int, enabled: bool) -> None:
+        if 0 <= idx < len(self.regions):
+            self.regions[idx].enabled = enabled
 
     def edit_cell(self) -> None:
         idx = self._require_selection()
@@ -457,6 +464,8 @@ class ImageOcrExcelApp:
         self.regions[idx].cell = cell
         self.refresh_region_list()
         self.redraw()
+        self._ocr_region(idx)
+        self.refresh_region_list()
 
     def edit_name(self) -> None:
         idx = self._require_selection()
@@ -476,13 +485,6 @@ class ImageOcrExcelApp:
         self.selected_index = min(idx, len(self.regions) - 1) if self.regions else None
         self.refresh_region_list()
         self.redraw()
-
-    def apply_text_edit(self) -> None:
-        idx = self._require_selection()
-        if idx is None:
-            return
-        self.regions[idx].text = self.text_box.get().strip()
-        self.refresh_region_list()
 
     def _require_selection(self) -> int | None:
         if self.selected_index is None or not (0 <= self.selected_index < len(self.regions)):
@@ -514,13 +516,13 @@ class ImageOcrExcelApp:
             self._ocr_region(idx)
         self.refresh_region_list()
 
-    def _ocr_region(self, idx: int) -> None:
+    def _ocr_region(self, idx: int) -> bool:
         if not self.original_image:
             messagebox.showerror("画像未選択", "先に画像を開いてください。")
-            return
+            return False
         ocr = self._load_tesseract()
         if ocr is None:
-            return
+            return False
         region = self.regions[idx].normalized()
         crop = self.original_image.crop((region.x1, region.y1, region.x2, region.y2))
         prepared = self._prepare_for_ocr(crop)
@@ -532,16 +534,14 @@ class ImageOcrExcelApp:
             )
         except ocr.TesseractNotFoundError:
             messagebox.showerror("OCRエラー", "Tesseractが見つかりません。Tesseract欄に実行ファイルのパスを入力してください。")
-            return
+            return False
         except ocr.TesseractError as exc:
             messagebox.showerror("OCRエラー", str(exc))
-            return
+            return False
         cleaned = self._clean_text(text)
         self.regions[idx].text = cleaned
-        if idx == self.selected_index:
-            self.text_box.delete(0, END)
-            self.text_box.insert(0, cleaned)
         self.status_var.set(f"{self.regions[idx].name} をOCRしました。")
+        return True
 
     def _load_tesseract(self):
         if pytesseract is None:
@@ -568,6 +568,20 @@ class ImageOcrExcelApp:
         lines = [line for line in lines if line]
         return " ".join(lines).strip()
 
+    def _checked_region_indexes(self) -> list[int]:
+        return [idx for idx, region in enumerate(self.regions) if region.enabled]
+
+    def _checked_regions(self) -> list[Region]:
+        return [self.regions[idx] for idx in self._checked_region_indexes()]
+
+    def _ensure_checked_regions_ocr(self) -> bool:
+        for idx in self._checked_region_indexes():
+            if not self.regions[idx].text.strip():
+                if not self._ocr_region(idx):
+                    return False
+        self.refresh_region_list()
+        return True
+
     def write_excel(self) -> None:
         if self.excel_target_mode == "open":
             self.write_open_excel()
@@ -578,11 +592,12 @@ class ImageOcrExcelApp:
         if not self.regions:
             messagebox.showerror("範囲なし", "先に取得範囲を作成してください。")
             return
-        empty = [region.name for region in self.regions if not region.text.strip()]
-        if empty:
-            proceed = messagebox.askyesno("未OCRの範囲があります", "空の値がある範囲があります。このままExcelへ反映しますか？")
-            if not proceed:
-                return
+        target_regions = self._checked_regions()
+        if not target_regions:
+            messagebox.showerror("反映対象なし", "Excelへ反映する範囲にチェックを入れてください。")
+            return
+        if not self._ensure_checked_regions_ocr():
+            return
 
         if self.excel_path.exists():
             workbook = load_workbook(self.excel_path)
@@ -599,7 +614,7 @@ class ImageOcrExcelApp:
                 if default_sheet["A1"].value is None:
                     workbook.remove(default_sheet)
 
-        for region in self.regions:
+        for region in target_regions:
             if not self._valid_cell(region.cell):
                 messagebox.showerror("セル指定エラー", f"{region.name} のセル指定が不正です: {region.cell}")
                 return
@@ -613,6 +628,10 @@ class ImageOcrExcelApp:
         if not self.regions:
             messagebox.showerror("範囲なし", "先に取得範囲を作成してください。")
             return
+        target_regions = self._checked_regions()
+        if not target_regions:
+            messagebox.showerror("反映対象なし", "Excelへ反映する範囲にチェックを入れてください。")
+            return
 
         if not self.open_excel_books:
             self.refresh_open_excel()
@@ -622,11 +641,8 @@ class ImageOcrExcelApp:
             messagebox.showerror("Excel未選択", "開いているブックを選択してください。")
             return
 
-        empty = [region.name for region in self.regions if not region.text.strip()]
-        if empty:
-            proceed = messagebox.askyesno("未OCRの範囲があります", "空の値がある範囲があります。このままExcelへ反映しますか？")
-            if not proceed:
-                return
+        if not self._ensure_checked_regions_ocr():
+            return
 
         excel = self._get_excel_app(show_error=True)
         if excel is None:
@@ -641,7 +657,7 @@ class ImageOcrExcelApp:
             sheet_name = self.sheet_var.get().strip() or str(book_info.get("active_sheet") or "")
             worksheet = workbook.Worksheets(sheet_name)
             written_cells = []
-            for region in self.regions:
+            for region in target_regions:
                 if not self._valid_cell(region.cell):
                     messagebox.showerror("セル指定エラー", f"{region.name} のセル指定が不正です: {region.cell}")
                     return
