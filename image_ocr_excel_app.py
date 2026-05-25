@@ -100,8 +100,11 @@ class ImageOcrExcelApp:
         self.open_book_var = StringVar(value="")
         self.sheet_var = StringVar(value="Sheet1")
         self.lang_var = StringVar(value=DEFAULT_LANG)
+        self.lang_display_var = StringVar(value=self._lang_display(DEFAULT_LANG))
         self.tesseract_var = StringVar(value=self._detect_tesseract())
+        self.config_file_var = StringVar(value="ocr-config.json")
         self.status_var = StringVar(value="画像を開き、範囲をドラッグしてください。")
+        self.settings_window: ctk.CTkToplevel | None = None
 
         self._build_ui()
         self._bind_shortcuts()
@@ -118,7 +121,7 @@ class ImageOcrExcelApp:
         ctk.CTkLabel(topbar, text="Image OCR", font=UI_FONT_BOLD).pack(side=LEFT, padx=(14, 18))
         ctk.CTkLabel(topbar, text="OCR取込", font=UI_FONT, text_color="#2563eb").pack(side=LEFT, padx=(0, 18))
         ctk.CTkLabel(topbar, text="履歴", font=UI_FONT, text_color="#64748b").pack(side=LEFT, padx=(0, 18))
-        ctk.CTkLabel(topbar, text="設定", font=UI_FONT, text_color="#64748b").pack(side=LEFT)
+        ctk.CTkButton(topbar, text="設定", command=self.open_settings_modal, width=56, height=30, font=UI_FONT, fg_color="transparent", hover_color="#e2e8f0", text_color="#64748b").pack(side=LEFT)
         ctk.CTkLabel(topbar, textvariable=self.status_var, anchor="e", font=UI_FONT_SMALL, text_color="#64748b").pack(side=RIGHT, fill="x", expand=True, padx=(16, 14))
 
         main = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
@@ -133,8 +136,7 @@ class ImageOcrExcelApp:
         ctk.CTkButton(canvas_toolbar, text="画像を開く", command=self.open_image, width=96, height=26, font=UI_FONT_SMALL).pack(side=LEFT, padx=(10, 4), pady=8)
         ctk.CTkButton(canvas_toolbar, text="フォルダ", command=self.open_image_folder, width=82, height=26, font=UI_FONT_SMALL, fg_color="#475569", hover_color="#334155").pack(side=LEFT, padx=4, pady=8)
         ctk.CTkFrame(canvas_toolbar, width=1, height=20, fg_color="#374151").pack(side=LEFT, padx=8, pady=11)
-        ctk.CTkButton(canvas_toolbar, text="設定読込", command=self.load_mapping, width=82, height=26, font=UI_FONT_SMALL, fg_color="#475569", hover_color="#334155").pack(side=LEFT, padx=4, pady=8)
-        ctk.CTkButton(canvas_toolbar, text="設定保存", command=self.save_mapping, width=82, height=26, font=UI_FONT_SMALL, fg_color="#475569", hover_color="#334155").pack(side=LEFT, padx=4, pady=8)
+        ctk.CTkButton(canvas_toolbar, text="設定", command=self.open_settings_modal, width=70, height=26, font=UI_FONT_SMALL, fg_color="#475569", hover_color="#334155").pack(side=LEFT, padx=4, pady=8)
         ctk.CTkFrame(canvas_toolbar, width=1, height=20, fg_color="#374151").pack(side=LEFT, padx=8, pady=11)
         ctk.CTkLabel(canvas_toolbar, text="ドラッグで範囲を追加", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=LEFT, padx=(4, 0))
         self.image_count_var = StringVar(value="0 / 0")
@@ -190,15 +192,6 @@ class ImageOcrExcelApp:
         ctk.CTkButton(excel_box, text="ファイル選択", command=self.select_excel, height=28, font=UI_FONT_SMALL, fg_color="#64748b", hover_color="#475569").grid(row=4, column=0, sticky="ew", padx=(0, 4))
         ctk.CTkLabel(excel_box, textvariable=self.excel_var, anchor="w", font=UI_FONT_SMALL, text_color="#64748b").grid(row=4, column=1, sticky="ew", padx=(4, 0))
 
-        settings_box = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
-        settings_box.pack(side=TOP, fill="x", padx=12, pady=(0, 8))
-        settings_box.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(settings_box, text="OCR設定", font=UI_FONT_BOLD).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
-        ctk.CTkLabel(settings_box, text="言語", font=UI_FONT_SMALL).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 6))
-        ctk.CTkEntry(settings_box, textvariable=self.lang_var, height=28, font=UI_FONT_SMALL).grid(row=1, column=1, sticky="ew", pady=(0, 6))
-        ctk.CTkLabel(settings_box, text="Tesseract", font=UI_FONT_SMALL).grid(row=2, column=0, sticky="w", padx=(0, 8))
-        ctk.CTkEntry(settings_box, textvariable=self.tesseract_var, height=28, font=UI_FONT_SMALL).grid(row=2, column=1, sticky="ew")
-
         region_box = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
         region_box.pack(side=TOP, fill=BOTH, expand=True)
         region_header = ctk.CTkFrame(region_box, corner_radius=0, fg_color="#ffffff")
@@ -225,6 +218,102 @@ class ImageOcrExcelApp:
             return found
         default = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
         return str(default) if default.exists() else ""
+
+    def _lang_display(self, value: str) -> str:
+        labels = {
+            "jpn+eng": "日本語 + English",
+            "jpn": "日本語のみ",
+            "eng": "English のみ",
+        }
+        return labels.get(value, value or self._lang_display(DEFAULT_LANG))
+
+    def _lang_value(self, display: str) -> str:
+        values = {
+            "日本語 + English": "jpn+eng",
+            "日本語のみ": "jpn",
+            "English のみ": "eng",
+        }
+        return values.get(display, display or DEFAULT_LANG)
+
+    def _sync_lang_from_display(self, display: str | None = None) -> None:
+        self.lang_var.set(self._lang_value(display or self.lang_display_var.get()))
+
+    def open_settings_modal(self) -> None:
+        if self.settings_window and self.settings_window.winfo_exists():
+            self.settings_window.focus()
+            return
+
+        self.lang_display_var.set(self._lang_display(self.lang_var.get()))
+        window = ctk.CTkToplevel(self.root)
+        self.settings_window = window
+        window.title("設定")
+        window.geometry("360x360")
+        window.resizable(False, False)
+        window.transient(self.root)
+        window.grab_set()
+        window.configure(fg_color="#2f312f")
+
+        panel = ctk.CTkFrame(window, corner_radius=0, fg_color="#2f312f")
+        panel.pack(fill=BOTH, expand=True, padx=18, pady=18)
+        panel.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(panel, text="設定", anchor="w", font=UI_FONT_BOLD, text_color="#f8fafc").grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(panel, text="OCR エンジンと言語の設定", anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").grid(row=1, column=0, sticky="ew", pady=(6, 18))
+
+        ctk.CTkLabel(panel, text="OCR 言語", anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").grid(row=2, column=0, sticky="ew", pady=(0, 6))
+        ctk.CTkComboBox(
+            panel,
+            variable=self.lang_display_var,
+            values=["日本語 + English", "日本語のみ", "English のみ"],
+            command=self._sync_lang_from_display,
+            height=32,
+            font=UI_FONT,
+            dropdown_font=UI_FONT,
+            fg_color="#262826",
+            border_color="#555955",
+            button_color="#3f433f",
+            button_hover_color="#555955",
+            text_color="#f8fafc",
+        ).grid(row=3, column=0, sticky="ew")
+
+        ctk.CTkLabel(panel, text="Tesseract パス", anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").grid(row=4, column=0, sticky="ew", pady=(14, 6))
+        ctk.CTkEntry(panel, textvariable=self.tesseract_var, height=32, font=UI_FONT, fg_color="#262826", border_color="#555955", text_color="#f8fafc").grid(row=5, column=0, sticky="ew")
+
+        ctk.CTkLabel(panel, text="設定ファイル", anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").grid(row=6, column=0, sticky="ew", pady=(14, 6))
+        file_row = ctk.CTkFrame(panel, fg_color="transparent")
+        file_row.grid(row=7, column=0, sticky="ew")
+        file_row.grid_columnconfigure(0, weight=1)
+        ctk.CTkEntry(file_row, textvariable=self.config_file_var, height=32, font=UI_FONT, fg_color="#262826", border_color="#555955", text_color="#f8fafc").grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(file_row, text="読込", command=self.load_mapping_from_settings, width=48, height=32, font=UI_FONT_SMALL, fg_color="#3f433f", hover_color="#555955").grid(row=0, column=1, padx=(0, 6))
+        ctk.CTkButton(file_row, text="保存", command=self.save_mapping_from_settings, width=48, height=32, font=UI_FONT_SMALL, fg_color="#3f433f", hover_color="#555955").grid(row=0, column=2)
+
+        action_row = ctk.CTkFrame(panel, fg_color="transparent")
+        action_row.grid(row=8, column=0, sticky="ew", pady=(18, 0))
+        action_row.grid_columnconfigure(0, weight=1)
+        action_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkButton(action_row, text="キャンセル", command=window.destroy, height=32, font=UI_FONT, fg_color="#2f312f", hover_color="#3f433f", border_width=1, border_color="#666a66").grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ctk.CTkButton(action_row, text="保存", command=self.apply_settings_modal, height=32, font=UI_FONT, fg_color="#2f312f", hover_color="#3f433f", border_width=1, border_color="#666a66").grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+    def apply_settings_modal(self) -> None:
+        self._sync_lang_from_display()
+        self.status_var.set("OCR設定を更新しました。")
+        if self.settings_window and self.settings_window.winfo_exists():
+            self.settings_window.destroy()
+
+    def _settings_file_path(self) -> Path:
+        raw_path = self.config_file_var.get().strip() or "ocr-config.json"
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parent / path
+        return path
+
+    def save_mapping_from_settings(self) -> None:
+        self._sync_lang_from_display()
+        self.save_mapping(self._settings_file_path())
+
+    def load_mapping_from_settings(self) -> None:
+        self.load_mapping(self._settings_file_path())
+        self.lang_display_var.set(self._lang_display(self.lang_var.get()))
 
     def _bind_shortcuts(self) -> None:
         self.root.bind_all("<Control-Left>", self.previous_image)
@@ -803,17 +892,16 @@ class ImageOcrExcelApp:
                 return workbook
         return None
 
-    def save_mapping(self) -> None:
-        if not self.regions:
-            messagebox.showinfo("範囲なし", "保存する範囲がありません。")
-            return
-        file_name = filedialog.asksaveasfilename(
-            title="設定を保存",
-            defaultextension=".json",
-            filetypes=[("JSON", "*.json")],
-        )
-        if not file_name:
-            return
+    def save_mapping(self, file_name: str | Path | None = None) -> None:
+        if file_name is None:
+            file_name = filedialog.asksaveasfilename(
+                title="設定を保存",
+                defaultextension=".json",
+                filetypes=[("JSON", "*.json")],
+            )
+            if not file_name:
+                return
+        path = Path(file_name)
         data = {
             "image_path": str(self.image_path) if self.image_path else "",
             "excel_path": str(self.excel_path) if self.excel_path else "",
@@ -821,19 +909,27 @@ class ImageOcrExcelApp:
             "open_book": self.open_book_var.get(),
             "sheet": self.sheet_var.get(),
             "lang": self.lang_var.get(),
+            "tesseract_path": self.tesseract_var.get(),
             "regions": [asdict(region.normalized()) for region in self.regions],
         }
-        Path(file_name).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        self.status_var.set(f"設定を保存しました: {file_name}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.config_file_var.set(str(path))
+        self.status_var.set(f"設定を保存しました: {path}")
 
-    def load_mapping(self) -> None:
-        file_name = filedialog.askopenfilename(
-            title="設定を読み込み",
-            filetypes=[("JSON", "*.json"), ("All files", "*.*")],
-        )
-        if not file_name:
+    def load_mapping(self, file_name: str | Path | None = None) -> None:
+        if file_name is None:
+            file_name = filedialog.askopenfilename(
+                title="設定を読み込み",
+                filetypes=[("JSON", "*.json"), ("All files", "*.*")],
+            )
+            if not file_name:
+                return
+        path = Path(file_name)
+        if not path.exists():
+            messagebox.showerror("設定なし", f"設定ファイルが見つかりません。\n{path}")
             return
-        data = json.loads(Path(file_name).read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("image_path") and Path(data["image_path"]).exists():
             self.image_files = [Path(data["image_path"])]
             self.current_image_index = 0
@@ -847,11 +943,14 @@ class ImageOcrExcelApp:
             self.open_book_var.set(data["open_book"])
         self.sheet_var.set(data.get("sheet") or "Sheet1")
         self.lang_var.set(data.get("lang") or DEFAULT_LANG)
+        if data.get("tesseract_path"):
+            self.tesseract_var.set(data["tesseract_path"])
         self.regions = [Region(**item).normalized() for item in data.get("regions", [])]
         self.selected_index = 0 if self.regions else None
         self.refresh_region_list()
         self.redraw()
-        self.status_var.set(f"設定を読み込みました: {file_name}")
+        self.config_file_var.set(str(path))
+        self.status_var.set(f"設定を読み込みました: {path}")
 
 
 def main() -> None:
