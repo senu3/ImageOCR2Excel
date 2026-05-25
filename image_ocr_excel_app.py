@@ -115,15 +115,6 @@ class ImageOcrExcelApp:
 
         self.root.configure(fg_color="#eef2f6")
 
-        topbar = ctk.CTkFrame(self.root, height=48, corner_radius=0, fg_color="#ffffff")
-        topbar.pack(side=TOP, fill="x")
-        topbar.pack_propagate(False)
-        ctk.CTkLabel(topbar, text="Image OCR", font=UI_FONT_BOLD).pack(side=LEFT, padx=(14, 18))
-        ctk.CTkLabel(topbar, text="OCR取込", font=UI_FONT, text_color="#2563eb").pack(side=LEFT, padx=(0, 18))
-        ctk.CTkLabel(topbar, text="履歴", font=UI_FONT, text_color="#64748b").pack(side=LEFT, padx=(0, 18))
-        ctk.CTkButton(topbar, text="設定", command=self.open_settings_modal, width=56, height=30, font=UI_FONT, fg_color="transparent", hover_color="#e2e8f0", text_color="#64748b").pack(side=LEFT)
-        ctk.CTkLabel(topbar, textvariable=self.status_var, anchor="e", font=UI_FONT_SMALL, text_color="#64748b").pack(side=RIGHT, fill="x", expand=True, padx=(16, 14))
-
         main = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
         main.pack(side=TOP, fill=BOTH, expand=True)
 
@@ -188,9 +179,9 @@ class ImageOcrExcelApp:
         self.book_combo.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 6))
         self.sheet_combo = ctk.CTkComboBox(excel_box, variable=self.sheet_var, values=["Sheet1"], font=UI_FONT_SMALL, dropdown_font=UI_FONT_SMALL)
         self.sheet_combo.grid(row=3, column=0, sticky="ew", padx=(0, 4), pady=(0, 8))
-        ctk.CTkButton(excel_box, text="更新", command=self.refresh_open_excel, height=28, font=UI_FONT_SMALL).grid(row=3, column=1, sticky="ew", padx=(4, 0), pady=(0, 8))
-        ctk.CTkButton(excel_box, text="ファイル選択", command=self.select_excel, height=28, font=UI_FONT_SMALL, fg_color="#64748b", hover_color="#475569").grid(row=4, column=0, sticky="ew", padx=(0, 4))
-        ctk.CTkLabel(excel_box, textvariable=self.excel_var, anchor="w", font=UI_FONT_SMALL, text_color="#64748b").grid(row=4, column=1, sticky="ew", padx=(4, 0))
+        self.excel_action_button = ctk.CTkButton(excel_box, text="更新", command=self.refresh_open_excel, height=28, font=UI_FONT_SMALL)
+        self.excel_action_button.grid(row=3, column=1, sticky="ew", padx=(4, 0), pady=(0, 8))
+        ctk.CTkLabel(excel_box, textvariable=self.excel_var, anchor="w", font=UI_FONT_SMALL, text_color="#64748b").grid(row=4, column=0, columnspan=2, sticky="ew")
 
         region_box = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
         region_box.pack(side=TOP, fill=BOTH, expand=True)
@@ -210,7 +201,8 @@ class ImageOcrExcelApp:
         footer = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
         footer.pack(side=BOTTOM, fill="x", padx=12, pady=(8, 12))
         ctk.CTkButton(footer, text="OCRしてExcelへ反映", command=self.write_excel, height=40, font=UI_FONT, fg_color="#16a34a", hover_color="#15803d").pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(footer, text="チェック済み範囲を処理します", anchor="center", font=UI_FONT_SMALL, text_color="#64748b").pack(fill="x")
+        ctk.CTkLabel(footer, textvariable=self.status_var, anchor="center", font=UI_FONT_SMALL, text_color="#64748b", wraplength=300).pack(fill="x")
+        self._sync_excel_controls()
 
     def _detect_tesseract(self) -> str:
         found = shutil.which("tesseract")
@@ -404,6 +396,7 @@ class ImageOcrExcelApp:
         self.excel_var.set(str(self.excel_path))
         self.excel_target_mode = "file"
         self.excel_mode_var.set("ファイル出力")
+        self._sync_excel_controls()
 
     def refresh_open_excel(self, silent: bool = False) -> None:
         excel = self._get_excel_app(show_error=not silent)
@@ -452,19 +445,40 @@ class ImageOcrExcelApp:
         if not book:
             self.sheet_combo.configure(values=[])
             return
-        sheets = list(book["sheets"])
+        raw_sheets = book.get("sheets")
+        sheets = [str(sheet) for sheet in raw_sheets] if isinstance(raw_sheets, list) else []
         self.sheet_combo.configure(values=sheets)
+        if not sheets:
+            self.sheet_var.set("")
+            return
         if self.sheet_var.get() not in sheets:
             self.sheet_var.set(str(book.get("active_sheet") or sheets[0]))
         self.excel_target_mode = "open"
         self.excel_mode_var.set("開いているExcel")
         self.excel_var.set(f"開いているExcel: {book['display']}")
+        self._sync_excel_controls()
 
     def on_excel_mode_change(self, value: str) -> None:
         if value == "開いているExcel":
             self.use_open_excel()
         else:
             self.use_file_excel()
+
+    def _sync_excel_controls(self) -> None:
+        if self.excel_target_mode == "file":
+            self.excel_action_button.configure(
+                text="ファイル選択",
+                command=self.select_excel,
+                fg_color="#64748b",
+                hover_color="#475569",
+            )
+        else:
+            self.excel_action_button.configure(
+                text="更新",
+                command=self.refresh_open_excel,
+                fg_color=["#3B8ED0", "#1F6AA5"],
+                hover_color=["#36719F", "#144870"],
+            )
 
     def use_open_excel(self, show_message: bool = True) -> None:
         if not self.open_excel_books:
@@ -475,6 +489,7 @@ class ImageOcrExcelApp:
         self.excel_target_mode = "open"
         self.excel_mode_var.set("開いているExcel")
         self.excel_var.set(f"開いているExcel: {book['display']}")
+        self._sync_excel_controls()
         if show_message:
             self.status_var.set("開いているExcelへ反映する設定にしました。")
 
@@ -482,6 +497,7 @@ class ImageOcrExcelApp:
         self.excel_target_mode = "file"
         self.excel_mode_var.set("ファイル出力")
         self.excel_var.set(str(self.excel_path) if self.excel_path else "Excel未選択")
+        self._sync_excel_controls()
         self.status_var.set("Excelファイルへ保存する設定にしました。")
 
     def _initial_zoom(self) -> float:
@@ -512,16 +528,31 @@ class ImageOcrExcelApp:
         region = self.regions[idx].normalized()
         x1, y1, x2, y2 = [v * self.zoom for v in (region.x1, region.y1, region.x2, region.y2)]
         color = "#ff3366" if idx == self.selected_index else "#24c8ff"
+        label_bg = "#ff3366" if idx == self.selected_index else "#1d4ed8"
         width = 3 if idx == self.selected_index else 2
         rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
+        label_text = f"範囲{idx + 1} -> {region.cell}"
+        label_x = x1 + 4
+        label_y = max(4, y1 - 24)
         label = self.canvas.create_text(
-            x1 + 4,
-            y1 + 4,
+            label_x + 7,
+            label_y + 4,
             anchor="nw",
-            text=f"{idx + 1}: {region.cell}",
+            text=label_text,
             fill="white",
             font=UI_FONT_CANVAS,
         )
+        label_box = self.canvas.bbox(label)
+        if label_box:
+            bg = self.canvas.create_rectangle(
+                label_box[0] - 5,
+                label_box[1] - 3,
+                label_box[2] + 5,
+                label_box[3] + 3,
+                fill=label_bg,
+                outline=label_bg,
+            )
+            self.canvas.tag_lower(bg, label)
         self.canvas_rects[idx] = rect
         self.canvas_labels[idx] = label
 
@@ -615,11 +646,12 @@ class ImageOcrExcelApp:
         self.region_check_vars = []
         for idx, region in enumerate(self.regions):
             text = region.text.replace("\n", " ").strip()
-            suffix = f"  {text}" if text else "  未OCR"
-            row_color = "#dbeafe" if idx == self.selected_index else "transparent"
-            row = ctk.CTkFrame(self.region_list_frame, fg_color=row_color, corner_radius=6)
-            row.pack(fill="x", pady=2)
-            row.grid_columnconfigure(1, weight=1)
+            result_text = text if text else "OCR 未実行"
+            row_color = "#e8f1ff" if idx == self.selected_index else "#ffffff"
+            border_color = "#2563eb" if idx == self.selected_index else "#d7dee8"
+            row = ctk.CTkFrame(self.region_list_frame, fg_color=row_color, corner_radius=6, border_width=1, border_color=border_color)
+            row.pack(fill="x", pady=3)
+            row.grid_columnconfigure(2, weight=1)
             var = BooleanVar(value=region.enabled)
             self.region_check_vars.append(var)
             checkbox = ctk.CTkCheckBox(
@@ -631,11 +663,22 @@ class ImageOcrExcelApp:
                 command=lambda i=idx, v=var: self.set_region_enabled(i, v.get()),
             )
             checkbox.grid(row=0, column=0, rowspan=2, padx=(8, 2), pady=8)
-            title = ctk.CTkLabel(row, text=f"{idx + 1}. {region.name} -> {region.cell}", anchor="w", font=UI_FONT)
-            title.grid(row=0, column=1, sticky="ew", padx=(2, 8), pady=(6, 0))
-            value = ctk.CTkLabel(row, text=suffix.strip(), anchor="w", text_color="#475569", font=UI_FONT_SMALL)
-            value.grid(row=1, column=1, sticky="ew", padx=(2, 8), pady=(0, 6))
-            for widget in (row, title, value):
+            label = ctk.CTkLabel(
+                row,
+                text=f"範囲{idx + 1}",
+                font=UI_FONT_SMALL,
+                text_color="#ffffff",
+                fg_color="#2563eb",
+                corner_radius=4,
+                width=54,
+                height=22,
+            )
+            label.grid(row=0, column=1, sticky="w", padx=(4, 6), pady=(8, 2))
+            cell = ctk.CTkLabel(row, text=f"-> {region.cell}", anchor="w", font=UI_FONT_SMALL, text_color="#64748b")
+            cell.grid(row=0, column=2, sticky="ew", padx=(0, 8), pady=(8, 2))
+            value = ctk.CTkLabel(row, text=result_text, anchor="w", text_color="#1f2937" if text else "#94a3b8", font=UI_FONT_SMALL)
+            value.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(4, 8), pady=(0, 8))
+            for widget in (row, label, cell, value):
                 widget.bind("<Button-1>", lambda _event, i=idx: self.select_region(i))
 
     def set_region_enabled(self, idx: int, enabled: bool) -> None:
@@ -939,6 +982,7 @@ class ImageOcrExcelApp:
             self.excel_var.set(str(self.excel_path))
         self.excel_target_mode = data.get("excel_target_mode") or "file"
         self.excel_mode_var.set("開いているExcel" if self.excel_target_mode == "open" else "ファイル出力")
+        self._sync_excel_controls()
         if data.get("open_book"):
             self.open_book_var.set(data["open_book"])
         self.sheet_var.set(data.get("sheet") or "Sheet1")
