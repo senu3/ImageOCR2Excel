@@ -110,74 +110,40 @@ class ImageOcrExcelApp:
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
 
-        top = ctk.CTkFrame(self.root, corner_radius=0)
-        top.pack(side=TOP, fill="x")
-        top.grid_columnconfigure(0, weight=1)
-        top.grid_columnconfigure(1, weight=2)
-        top.grid_columnconfigure(2, weight=1)
+        self.root.configure(fg_color="#eef2f6")
 
-        image_panel = ctk.CTkFrame(top, corner_radius=8)
-        image_panel.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
-        ctk.CTkLabel(image_panel, text="画像", font=UI_FONT_BOLD).pack(anchor="w", padx=12, pady=(10, 6))
-        image_row = ctk.CTkFrame(image_panel, fg_color="transparent")
-        image_row.pack(fill="x", padx=12)
-        ctk.CTkButton(image_row, text="画像", command=self.open_image, font=UI_FONT).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
-        ctk.CTkButton(image_row, text="フォルダ", command=self.open_image_folder, font=UI_FONT, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
-        nav_row = ctk.CTkFrame(image_panel, fg_color="transparent")
-        nav_row.pack(fill="x", padx=12, pady=(8, 0))
-        ctk.CTkButton(nav_row, text="◁", command=self.previous_image, width=54, font=UI_FONT).pack(side=LEFT, padx=(0, 6))
-        self.image_count_var = StringVar(value="0 / 0")
-        ctk.CTkLabel(nav_row, textvariable=self.image_count_var, anchor="center", font=UI_FONT).pack(side=LEFT, fill="x", expand=True)
-        ctk.CTkButton(nav_row, text="▷", command=self.next_image, width=54, font=UI_FONT).pack(side=LEFT, padx=(6, 0))
-        mapping_row = ctk.CTkFrame(image_panel, fg_color="transparent")
-        mapping_row.pack(fill="x", padx=12, pady=(8, 10))
-        ctk.CTkButton(mapping_row, text="設定読込", command=self.load_mapping, width=92, font=UI_FONT).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
-        ctk.CTkButton(mapping_row, text="設定保存", command=self.save_mapping, width=92, font=UI_FONT, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
-
-        excel_panel = ctk.CTkFrame(top, corner_radius=8)
-        excel_panel.grid(row=0, column=1, sticky="nsew", padx=5, pady=10)
-        excel_panel.grid_columnconfigure(0, weight=1)
-        excel_panel.grid_columnconfigure(1, weight=0)
-        excel_panel.grid_columnconfigure(2, weight=0)
-        ctk.CTkLabel(excel_panel, text="Excel", font=UI_FONT_BOLD).grid(row=0, column=0, columnspan=3, sticky="w", padx=12, pady=(10, 6))
-        ctk.CTkSegmentedButton(
-            excel_panel,
-            values=["開いているExcel", "ファイル出力"],
-            variable=self.excel_mode_var,
-            command=self.on_excel_mode_change,
-            font=UI_FONT,
-        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
-        ctk.CTkButton(excel_panel, text="更新", command=self.refresh_open_excel, width=72, font=UI_FONT).grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(0, 8))
-        ctk.CTkButton(excel_panel, text="ファイル選択", command=self.select_excel, width=96, font=UI_FONT, fg_color="#64748b", hover_color="#475569").grid(row=1, column=2, sticky="ew", padx=(0, 12), pady=(0, 8))
-        self.book_combo = ctk.CTkComboBox(excel_panel, variable=self.open_book_var, values=[], command=self.on_open_book_select, font=UI_FONT, dropdown_font=UI_FONT)
-        self.book_combo.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
-        self.sheet_combo = ctk.CTkComboBox(excel_panel, variable=self.sheet_var, values=["Sheet1"], font=UI_FONT, dropdown_font=UI_FONT)
-        self.sheet_combo.grid(row=2, column=2, sticky="ew", padx=(0, 12), pady=(0, 8))
-
-        ocr_panel = ctk.CTkFrame(top, corner_radius=8)
-        ocr_panel.grid(row=0, column=2, sticky="nsew", padx=(5, 10), pady=10)
-        ctk.CTkLabel(ocr_panel, text="反映", font=UI_FONT_BOLD).pack(anchor="w", padx=12, pady=(10, 6))
-        ctk.CTkLabel(ocr_panel, text="チェック済み範囲をOCRしてExcelへ書き込みます。", anchor="w", font=UI_FONT_SMALL).pack(fill="x", padx=12)
-        ctk.CTkButton(ocr_panel, text="OCRしてExcelへ反映", command=self.write_excel, height=40, font=UI_FONT, fg_color="#16a34a", hover_color="#15803d").pack(fill="x", padx=12, pady=(10, 10))
-
-        settings = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
-        settings.pack(side=TOP, fill="x", padx=10, pady=(0, 6))
-        ctk.CTkLabel(settings, text="OCR言語", font=UI_FONT).pack(side=LEFT)
-        ctk.CTkEntry(settings, textvariable=self.lang_var, width=92, font=UI_FONT).pack(side=LEFT, padx=(6, 14))
-        ctk.CTkLabel(settings, text="Tesseract", font=UI_FONT).pack(side=LEFT)
-        ctk.CTkEntry(settings, textvariable=self.tesseract_var, width=360, font=UI_FONT).pack(side=LEFT, padx=(6, 14))
-        ctk.CTkLabel(settings, textvariable=self.status_var, anchor="w", font=UI_FONT_SMALL).pack(side=LEFT, fill="x", expand=True)
-
-        pathbar = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
-        pathbar.pack(side=TOP, fill="x", padx=10, pady=(0, 6))
-        ctk.CTkLabel(pathbar, textvariable=self.image_var, anchor="w", font=UI_FONT_SMALL).pack(side=LEFT, fill="x", expand=True, padx=(0, 8))
-        ctk.CTkLabel(pathbar, textvariable=self.excel_var, anchor="e", font=UI_FONT_SMALL).pack(side=RIGHT, fill="x", expand=True)
+        topbar = ctk.CTkFrame(self.root, height=48, corner_radius=0, fg_color="#ffffff")
+        topbar.pack(side=TOP, fill="x")
+        topbar.pack_propagate(False)
+        ctk.CTkLabel(topbar, text="Image OCR", font=UI_FONT_BOLD).pack(side=LEFT, padx=(14, 18))
+        ctk.CTkLabel(topbar, text="OCR取込", font=UI_FONT, text_color="#2563eb").pack(side=LEFT, padx=(0, 18))
+        ctk.CTkLabel(topbar, text="履歴", font=UI_FONT, text_color="#64748b").pack(side=LEFT, padx=(0, 18))
+        ctk.CTkLabel(topbar, text="設定", font=UI_FONT, text_color="#64748b").pack(side=LEFT)
+        ctk.CTkLabel(topbar, textvariable=self.status_var, anchor="e", font=UI_FONT_SMALL, text_color="#64748b").pack(side=RIGHT, fill="x", expand=True, padx=(16, 14))
 
         main = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
         main.pack(side=TOP, fill=BOTH, expand=True)
 
-        canvas_frame = ctk.CTkFrame(main, corner_radius=8)
-        canvas_frame.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 6), pady=(0, 10))
+        canvas_area = ctk.CTkFrame(main, corner_radius=0, fg_color="#1f2937")
+        canvas_area.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 0), pady=10)
+
+        canvas_toolbar = ctk.CTkFrame(canvas_area, height=42, corner_radius=0, fg_color="#111827")
+        canvas_toolbar.pack(side=TOP, fill="x")
+        canvas_toolbar.pack_propagate(False)
+        ctk.CTkButton(canvas_toolbar, text="画像を開く", command=self.open_image, width=96, height=26, font=UI_FONT_SMALL).pack(side=LEFT, padx=(10, 4), pady=8)
+        ctk.CTkButton(canvas_toolbar, text="フォルダ", command=self.open_image_folder, width=82, height=26, font=UI_FONT_SMALL, fg_color="#475569", hover_color="#334155").pack(side=LEFT, padx=4, pady=8)
+        ctk.CTkFrame(canvas_toolbar, width=1, height=20, fg_color="#374151").pack(side=LEFT, padx=8, pady=11)
+        ctk.CTkButton(canvas_toolbar, text="設定読込", command=self.load_mapping, width=82, height=26, font=UI_FONT_SMALL, fg_color="#475569", hover_color="#334155").pack(side=LEFT, padx=4, pady=8)
+        ctk.CTkButton(canvas_toolbar, text="設定保存", command=self.save_mapping, width=82, height=26, font=UI_FONT_SMALL, fg_color="#475569", hover_color="#334155").pack(side=LEFT, padx=4, pady=8)
+        ctk.CTkFrame(canvas_toolbar, width=1, height=20, fg_color="#374151").pack(side=LEFT, padx=8, pady=11)
+        ctk.CTkLabel(canvas_toolbar, text="ドラッグで範囲を追加", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=LEFT, padx=(4, 0))
+        self.image_count_var = StringVar(value="0 / 0")
+        ctk.CTkButton(canvas_toolbar, text="▷", command=self.next_image, width=34, height=26, font=UI_FONT_SMALL, fg_color="#374151", hover_color="#4b5563").pack(side=RIGHT, padx=(4, 10), pady=8)
+        ctk.CTkLabel(canvas_toolbar, textvariable=self.image_count_var, width=64, anchor="center", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=RIGHT)
+        ctk.CTkButton(canvas_toolbar, text="◁", command=self.previous_image, width=34, height=26, font=UI_FONT_SMALL, fg_color="#374151", hover_color="#4b5563").pack(side=RIGHT, padx=4, pady=8)
+
+        canvas_frame = ctk.CTkFrame(canvas_area, corner_radius=0, fg_color="#1f2937")
+        canvas_frame.pack(side=TOP, fill=BOTH, expand=True)
 
         self.canvas = Canvas(canvas_frame, bg="#2b2f36", highlightthickness=0)
         hbar = Scrollbar(canvas_frame, orient=HORIZONTAL, command=self.canvas.xview)
@@ -195,13 +161,49 @@ class ImageOcrExcelApp:
         self.canvas.bind("<Control-MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
 
-        side = ctk.CTkFrame(main, width=360, corner_radius=8)
-        side.pack(side=RIGHT, fill="y", padx=(6, 10), pady=(0, 10))
+        status_bar = ctk.CTkFrame(canvas_area, height=28, corner_radius=0, fg_color="#111827")
+        status_bar.pack(side=BOTTOM, fill="x")
+        status_bar.pack_propagate(False)
+        ctk.CTkLabel(status_bar, textvariable=self.image_var, anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=LEFT, fill="x", expand=True, padx=10)
+
+        side = ctk.CTkFrame(main, width=340, corner_radius=0, fg_color="#ffffff")
+        side.pack(side=RIGHT, fill="y", padx=(0, 10), pady=10)
         side.pack_propagate(False)
 
-        region_box = ctk.CTkFrame(side, corner_radius=8)
+        excel_box = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
+        excel_box.pack(side=TOP, fill="x", padx=12, pady=(12, 8))
+        excel_box.grid_columnconfigure(0, weight=1)
+        excel_box.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(excel_box, text="出力先 Excel", font=UI_FONT_BOLD).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ctk.CTkSegmentedButton(
+            excel_box,
+            values=["開いているExcel", "ファイル出力"],
+            variable=self.excel_mode_var,
+            command=self.on_excel_mode_change,
+            font=UI_FONT_SMALL,
+        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        self.book_combo = ctk.CTkComboBox(excel_box, variable=self.open_book_var, values=[], command=self.on_open_book_select, font=UI_FONT_SMALL, dropdown_font=UI_FONT_SMALL)
+        self.book_combo.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+        self.sheet_combo = ctk.CTkComboBox(excel_box, variable=self.sheet_var, values=["Sheet1"], font=UI_FONT_SMALL, dropdown_font=UI_FONT_SMALL)
+        self.sheet_combo.grid(row=3, column=0, sticky="ew", padx=(0, 4), pady=(0, 8))
+        ctk.CTkButton(excel_box, text="更新", command=self.refresh_open_excel, height=28, font=UI_FONT_SMALL).grid(row=3, column=1, sticky="ew", padx=(4, 0), pady=(0, 8))
+        ctk.CTkButton(excel_box, text="ファイル選択", command=self.select_excel, height=28, font=UI_FONT_SMALL, fg_color="#64748b", hover_color="#475569").grid(row=4, column=0, sticky="ew", padx=(0, 4))
+        ctk.CTkLabel(excel_box, textvariable=self.excel_var, anchor="w", font=UI_FONT_SMALL, text_color="#64748b").grid(row=4, column=1, sticky="ew", padx=(4, 0))
+
+        settings_box = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
+        settings_box.pack(side=TOP, fill="x", padx=12, pady=(0, 8))
+        settings_box.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(settings_box, text="OCR設定", font=UI_FONT_BOLD).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ctk.CTkLabel(settings_box, text="言語", font=UI_FONT_SMALL).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 6))
+        ctk.CTkEntry(settings_box, textvariable=self.lang_var, height=28, font=UI_FONT_SMALL).grid(row=1, column=1, sticky="ew", pady=(0, 6))
+        ctk.CTkLabel(settings_box, text="Tesseract", font=UI_FONT_SMALL).grid(row=2, column=0, sticky="w", padx=(0, 8))
+        ctk.CTkEntry(settings_box, textvariable=self.tesseract_var, height=28, font=UI_FONT_SMALL).grid(row=2, column=1, sticky="ew")
+
+        region_box = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
         region_box.pack(side=TOP, fill=BOTH, expand=True)
-        ctk.CTkLabel(region_box, text="取得範囲とセル", font=UI_FONT_BOLD).pack(anchor="w", padx=12, pady=(12, 8))
+        region_header = ctk.CTkFrame(region_box, corner_radius=0, fg_color="#ffffff")
+        region_header.pack(side=TOP, fill="x", padx=12, pady=(8, 8))
+        ctk.CTkLabel(region_header, text="取得範囲", font=UI_FONT_BOLD).pack(side=LEFT)
 
         self.region_list_frame = ctk.CTkScrollableFrame(region_box, corner_radius=6)
         self.region_list_frame.pack(side=TOP, fill=BOTH, expand=True, padx=12)
@@ -212,9 +214,10 @@ class ImageOcrExcelApp:
         ctk.CTkButton(btns, text="範囲", command=self.reselect_region, width=70, font=UI_FONT, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=4)
         ctk.CTkButton(btns, text="削除", command=self.delete_region, width=70, font=UI_FONT, fg_color="#dc2626", hover_color="#b91c1c").pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
 
-        info = ctk.CTkFrame(side, corner_radius=8)
-        info.pack(side=BOTTOM, fill="x", pady=(8, 0))
-        ctk.CTkLabel(info, text="ドラッグ: 範囲追加 / Ctrl+ホイール: 拡大縮小\nCtrl+←/→: 画像切替 / Ctrl+Enter: Excel反映", anchor="w", justify="left", font=UI_FONT_SMALL).pack(fill="x", padx=12, pady=12)
+        footer = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
+        footer.pack(side=BOTTOM, fill="x", padx=12, pady=(8, 12))
+        ctk.CTkButton(footer, text="OCRしてExcelへ反映", command=self.write_excel, height=40, font=UI_FONT, fg_color="#16a34a", hover_color="#15803d").pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(footer, text="チェック済み範囲を処理します", anchor="center", font=UI_FONT_SMALL, text_color="#64748b").pack(fill="x")
 
     def _detect_tesseract(self) -> str:
         found = shutil.which("tesseract")
