@@ -157,7 +157,7 @@ class ImageOcrExcelApp:
         status_bar = ctk.CTkFrame(canvas_area, height=28, corner_radius=0, fg_color="#111827")
         status_bar.pack(side=BOTTOM, fill="x")
         status_bar.pack_propagate(False)
-        ctk.CTkLabel(status_bar, textvariable=self.image_var, anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=LEFT, fill="x", expand=True, padx=10)
+        ctk.CTkLabel(status_bar, textvariable=self.status_var, anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=LEFT, fill="x", expand=True, padx=10)
 
         side = ctk.CTkFrame(main, width=340, corner_radius=0, fg_color="#ffffff")
         side.pack(side=RIGHT, fill="y", padx=(0, 10), pady=10)
@@ -201,7 +201,6 @@ class ImageOcrExcelApp:
         footer = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
         footer.pack(side=BOTTOM, fill="x", padx=12, pady=(8, 12))
         ctk.CTkButton(footer, text="OCRしてExcelへ反映", command=self.write_excel, height=40, font=UI_FONT, fg_color="#16a34a", hover_color="#15803d").pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(footer, textvariable=self.status_var, anchor="center", font=UI_FONT_SMALL, text_color="#64748b", wraplength=300).pack(fill="x")
         self._sync_excel_controls()
 
     def _detect_tesseract(self) -> str:
