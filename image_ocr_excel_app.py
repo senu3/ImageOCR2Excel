@@ -1,30 +1,13 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from tkinter import (
-    BOTH,
-    BOTTOM,
-    BooleanVar,
-    HORIZONTAL,
-    LEFT,
-    RIGHT,
-    TOP,
-    VERTICAL,
-    Canvas,
-    Scrollbar,
-    StringVar,
-    filedialog,
-    messagebox,
-    simpledialog,
-)
+from tkinter import BOTH, BOTTOM, HORIZONTAL, LEFT, RIGHT, TOP, VERTICAL, BooleanVar, Canvas, Scrollbar, StringVar, filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
-from openpyxl import Workbook, load_workbook
-from openpyxl.utils.cell import coordinate_to_tuple
+from openpyxl import Workbook
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageTk
 
 try:
@@ -32,79 +15,100 @@ try:
 except ImportError:
     pytesseract = None
 
-try:
-    import win32com.client
-except ImportError:
-    win32com = None
-
 
 APP_TITLE = "Image OCR to Excel"
 DEFAULT_LANG = "jpn+eng"
-CELL_RE = re.compile(r"^[A-Za-z]{1,3}[1-9][0-9]*$")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+TEMPLATE_VERSION = 2
+
 UI_FONT_FAMILY = "Meiryo"
 UI_FONT = (UI_FONT_FAMILY, 13)
 UI_FONT_SMALL = (UI_FONT_FAMILY, 12)
 UI_FONT_BOLD = (UI_FONT_FAMILY, 14, "bold")
+UI_FONT_TITLE = (UI_FONT_FAMILY, 16, "bold")
 UI_FONT_CANVAS = (UI_FONT_FAMILY, 11, "bold")
+
+COLOR_BG = "#f6f8fb"
+COLOR_SURFACE = "#ffffff"
+COLOR_SURFACE_ALT = "#f8fafc"
+COLOR_BORDER = "#d9e2ec"
+COLOR_TEXT = "#12323a"
+COLOR_MUTED = "#64748b"
+COLOR_PRIMARY = "#0d9488"
+COLOR_PRIMARY_HOVER = "#0f766e"
+COLOR_SECONDARY = "#334155"
+COLOR_SECONDARY_HOVER = "#1f2937"
+COLOR_DANGER = "#dc2626"
+COLOR_DANGER_HOVER = "#b91c1c"
+COLOR_CTA = "#f97316"
+COLOR_CTA_HOVER = "#ea580c"
+COLOR_CANVAS_BG = "#111827"
+COLOR_CANVAS_PANEL = "#1f2937"
+COLOR_CANVAS_TOOLBAR = "#0f172a"
 
 
 @dataclass
-class Region:
+class TemplateField:
     name: str
-    cell: str
     x1: int
     y1: int
     x2: int
     y2: int
-    text: str = ""
     enabled: bool = True
 
-    def normalized(self) -> "Region":
+    def normalized(self) -> "TemplateField":
         x1, x2 = sorted((self.x1, self.x2))
         y1, y2 = sorted((self.y1, self.y2))
-        return Region(self.name, self.cell, x1, y1, x2, y2, self.text, self.enabled)
+        return TemplateField(self.name, x1, y1, x2, y2, self.enabled)
 
 
 class ImageOcrExcelApp:
     def __init__(self, root: ctk.CTk) -> None:
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("1180x780")
-        self.root.minsize(980, 640)
+        self.root.geometry("1220x800")
+        self.root.minsize(1040, 680)
         self.root.option_add("*Font", f"{UI_FONT_FAMILY} 10")
 
         self.image_path: Path | None = None
         self.image_files: list[Path] = []
-        self.current_image_index: int = -1
-        self.excel_path: Path | None = None
-        self.open_excel_books: list[dict[str, object]] = []
-        self.excel_target_mode = "open"
+        self.current_image_index = -1
+        self.source_folder: Path | None = None
+        self.output_path: Path | None = None
+        self.template_path: Path | None = None
+
         self.original_image: Image.Image | None = None
         self.preview_image: ImageTk.PhotoImage | None = None
-        self.regions: list[Region] = []
-        self.canvas_rects: dict[int, int] = {}
-        self.canvas_labels: dict[int, int] = {}
-        self.region_check_vars: list[BooleanVar] = []
-        self.selected_index: int | None = None
-
-        self.zoom = 1.0
         self.image_item: int | None = None
+        self.zoom = 1.0
+
+        self.fields: list[TemplateField] = []
+        self.current_results: list[str] = []
+        self.result_vars: list[StringVar] = []
+        self.field_check_vars: list[BooleanVar] = []
+        self.selected_index: int | None = None
+        self.reselect_index: int | None = None
+
         self.drag_start: tuple[int, int] | None = None
         self.drag_rect: int | None = None
-        self.reselect_region_index: int | None = None
+        self.canvas_rects: dict[int, int] = {}
+        self.canvas_labels: dict[int, int] = {}
 
+        self.mode_var = StringVar(value="テンプレート")
         self.image_var = StringVar(value="画像未選択")
-        self.excel_var = StringVar(value="Excel未選択")
-        self.excel_mode_var = StringVar(value="開いているExcel")
-        self.open_book_var = StringVar(value="")
-        self.sheet_var = StringVar(value="Sheet1")
+        self.folder_var = StringVar(value="フォルダ未選択")
+        self.output_var = StringVar(value="出力先未選択")
+        self.template_var = StringVar(value="テンプレート未保存")
+        self.image_count_var = StringVar(value="0 / 0")
+        self.field_count_var = StringVar(value="0 項目")
+        self.status_var = StringVar(value="サンプル画像を開き、読み取りたい範囲をドラッグしてください。")
+        self.progress_var = StringVar(value="")
         self.lang_var = StringVar(value=DEFAULT_LANG)
         self.lang_display_var = StringVar(value=self._lang_display(DEFAULT_LANG))
         self.tesseract_var = StringVar(value=self._detect_tesseract())
-        self.config_file_var = StringVar(value="ocr-config.json")
-        self.status_var = StringVar(value="画像を開き、範囲をドラッグしてください。")
-        self.settings_window: ctk.CTkToplevel | None = None
+
+        self.side_body: ctk.CTkFrame | None = None
+        self.canvas: Canvas
 
         self._build_ui()
         self._bind_shortcuts()
@@ -112,33 +116,31 @@ class ImageOcrExcelApp:
     def _build_ui(self) -> None:
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
-
-        self.root.configure(fg_color="#eef2f6")
+        self.root.configure(fg_color=COLOR_BG)
 
         main = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
         main.pack(side=TOP, fill=BOTH, expand=True)
 
-        canvas_area = ctk.CTkFrame(main, corner_radius=0, fg_color="#1f2937")
-        canvas_area.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 0), pady=10)
+        canvas_area = ctk.CTkFrame(main, corner_radius=8, fg_color=COLOR_CANVAS_PANEL, border_width=1, border_color="#243246")
+        canvas_area.pack(side=LEFT, fill=BOTH, expand=True, padx=(12, 0), pady=12)
 
-        canvas_toolbar = ctk.CTkFrame(canvas_area, height=42, corner_radius=0, fg_color="#111827")
-        canvas_toolbar.pack(side=TOP, fill="x")
-        canvas_toolbar.pack_propagate(False)
-        ctk.CTkButton(canvas_toolbar, text="画像を開く", command=self.open_image, width=96, height=26, font=UI_FONT_SMALL).pack(side=LEFT, padx=(10, 4), pady=8)
-        ctk.CTkButton(canvas_toolbar, text="フォルダ", command=self.open_image_folder, width=82, height=26, font=UI_FONT_SMALL, fg_color="#475569", hover_color="#334155").pack(side=LEFT, padx=4, pady=8)
-        ctk.CTkFrame(canvas_toolbar, width=1, height=20, fg_color="#374151").pack(side=LEFT, padx=8, pady=11)
-        ctk.CTkButton(canvas_toolbar, text="設定", command=self.open_settings_modal, width=70, height=26, font=UI_FONT_SMALL, fg_color="#475569", hover_color="#334155").pack(side=LEFT, padx=4, pady=8)
-        ctk.CTkFrame(canvas_toolbar, width=1, height=20, fg_color="#374151").pack(side=LEFT, padx=8, pady=11)
-        ctk.CTkLabel(canvas_toolbar, text="ドラッグで範囲を追加", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=LEFT, padx=(4, 0))
-        self.image_count_var = StringVar(value="0 / 0")
-        ctk.CTkButton(canvas_toolbar, text="▷", command=self.next_image, width=34, height=26, font=UI_FONT_SMALL, fg_color="#374151", hover_color="#4b5563").pack(side=RIGHT, padx=(4, 10), pady=8)
-        ctk.CTkLabel(canvas_toolbar, textvariable=self.image_count_var, width=64, anchor="center", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=RIGHT)
-        ctk.CTkButton(canvas_toolbar, text="◁", command=self.previous_image, width=34, height=26, font=UI_FONT_SMALL, fg_color="#374151", hover_color="#4b5563").pack(side=RIGHT, padx=4, pady=8)
+        toolbar = ctk.CTkFrame(canvas_area, height=50, corner_radius=0, fg_color=COLOR_CANVAS_TOOLBAR)
+        toolbar.pack(side=TOP, fill="x")
+        toolbar.pack_propagate(False)
+        self._toolbar_button(toolbar, "サンプル画像", self.open_sample_image, COLOR_PRIMARY, COLOR_PRIMARY_HOVER, 104).pack(side=LEFT, padx=(12, 4), pady=10)
+        self._toolbar_button(toolbar, "画像フォルダ", self.open_image_folder, COLOR_SECONDARY, COLOR_SECONDARY_HOVER, 104).pack(side=LEFT, padx=4, pady=10)
+        ctk.CTkFrame(toolbar, width=1, height=22, fg_color="#334155").pack(side=LEFT, padx=8, pady=14)
+        self._toolbar_button(toolbar, "読込", self.load_template, COLOR_SECONDARY, COLOR_SECONDARY_HOVER, 62).pack(side=LEFT, padx=4, pady=10)
+        self._toolbar_button(toolbar, "保存", self.save_template, COLOR_SECONDARY, COLOR_SECONDARY_HOVER, 62).pack(side=LEFT, padx=4, pady=10)
+        self._toolbar_button(toolbar, "設定", self.open_settings_modal, COLOR_SECONDARY, COLOR_SECONDARY_HOVER, 62).pack(side=LEFT, padx=4, pady=10)
+        ctk.CTkLabel(toolbar, textvariable=self.image_var, font=UI_FONT_SMALL, text_color="#dbeafe", anchor="w").pack(side=LEFT, fill="x", expand=True, padx=(12, 12))
+        self._toolbar_button(toolbar, ">", self.next_image, "#1e293b", "#334155", 34).pack(side=RIGHT, padx=(4, 12), pady=10)
+        ctk.CTkLabel(toolbar, textvariable=self.image_count_var, width=72, anchor="center", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=RIGHT)
+        self._toolbar_button(toolbar, "<", self.previous_image, "#1e293b", "#334155", 34).pack(side=RIGHT, padx=4, pady=10)
 
-        canvas_frame = ctk.CTkFrame(canvas_area, corner_radius=0, fg_color="#1f2937")
+        canvas_frame = ctk.CTkFrame(canvas_area, corner_radius=0, fg_color=COLOR_CANVAS_PANEL)
         canvas_frame.pack(side=TOP, fill=BOTH, expand=True)
-
-        self.canvas = Canvas(canvas_frame, bg="#2b2f36", highlightthickness=0)
+        self.canvas = Canvas(canvas_frame, bg=COLOR_CANVAS_BG, highlightthickness=0)
         hbar = Scrollbar(canvas_frame, orient=HORIZONTAL, command=self.canvas.xview)
         vbar = Scrollbar(canvas_frame, orient=VERTICAL, command=self.canvas.yview)
         self.canvas.configure(xscrollcommand=hbar.set, yscrollcommand=vbar.set)
@@ -151,179 +153,184 @@ class ImageOcrExcelApp:
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
-        self.canvas.bind("<Control-MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.canvas.bind("<Control-MouseWheel>", self.on_mouse_wheel)
 
-        status_bar = ctk.CTkFrame(canvas_area, height=28, corner_radius=0, fg_color="#111827")
+        status_bar = ctk.CTkFrame(canvas_area, height=34, corner_radius=0, fg_color=COLOR_CANVAS_TOOLBAR)
         status_bar.pack(side=BOTTOM, fill="x")
         status_bar.pack_propagate(False)
-        ctk.CTkLabel(status_bar, textvariable=self.status_var, anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=LEFT, fill="x", expand=True, padx=10)
+        ctk.CTkLabel(status_bar, textvariable=self.status_var, anchor="w", font=UI_FONT_SMALL, text_color="#dbeafe").pack(side=LEFT, fill="x", expand=True, padx=12)
+        ctk.CTkLabel(status_bar, textvariable=self.progress_var, anchor="e", font=UI_FONT_SMALL, text_color="#cbd5e1").pack(side=RIGHT, padx=12)
 
-        side = ctk.CTkFrame(main, width=340, corner_radius=0, fg_color="#ffffff")
-        side.pack(side=RIGHT, fill="y", padx=(0, 10), pady=10)
+        side = ctk.CTkFrame(main, width=390, corner_radius=8, fg_color=COLOR_SURFACE, border_width=1, border_color=COLOR_BORDER)
+        side.pack(side=RIGHT, fill="y", padx=(12, 12), pady=12)
         side.pack_propagate(False)
 
-        excel_box = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
-        excel_box.pack(side=TOP, fill="x", padx=12, pady=(12, 8))
-        excel_box.grid_columnconfigure(0, weight=1)
-        excel_box.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(excel_box, text="出力先 Excel", font=UI_FONT_BOLD).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        header = ctk.CTkFrame(side, corner_radius=0, fg_color=COLOR_SURFACE)
+        header.pack(side=TOP, fill="x", padx=16, pady=(16, 8))
+        ctk.CTkLabel(header, text="定型画像をExcel化", font=UI_FONT_TITLE, text_color=COLOR_TEXT, anchor="w").pack(side=LEFT, fill="x", expand=True)
+        ctk.CTkLabel(header, textvariable=self.field_count_var, font=UI_FONT_SMALL, text_color=COLOR_MUTED, anchor="e").pack(side=RIGHT)
+
         ctk.CTkSegmentedButton(
-            excel_box,
-            values=["開いているExcel", "ファイル出力"],
-            variable=self.excel_mode_var,
-            command=self.on_excel_mode_change,
+            side,
+            values=["テンプレート", "確認", "出力"],
+            variable=self.mode_var,
+            command=self._on_mode_change,
             font=UI_FONT_SMALL,
-        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        self.book_combo = ctk.CTkComboBox(excel_box, variable=self.open_book_var, values=[], command=self.on_open_book_select, font=UI_FONT_SMALL, dropdown_font=UI_FONT_SMALL)
-        self.book_combo.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 6))
-        self.sheet_combo = ctk.CTkComboBox(excel_box, variable=self.sheet_var, values=["Sheet1"], font=UI_FONT_SMALL, dropdown_font=UI_FONT_SMALL)
-        self.sheet_combo.grid(row=3, column=0, sticky="ew", padx=(0, 4), pady=(0, 8))
-        self.excel_action_button = ctk.CTkButton(excel_box, text="更新", command=self.refresh_open_excel, height=28, font=UI_FONT_SMALL)
-        self.excel_action_button.grid(row=3, column=1, sticky="ew", padx=(4, 0), pady=(0, 8))
-        ctk.CTkLabel(excel_box, textvariable=self.excel_var, anchor="w", font=UI_FONT_SMALL, text_color="#64748b").grid(row=4, column=0, columnspan=2, sticky="ew")
+            selected_color=COLOR_PRIMARY,
+            selected_hover_color=COLOR_PRIMARY_HOVER,
+            unselected_color="#e2e8f0",
+            unselected_hover_color="#cbd5e1",
+            text_color=COLOR_TEXT,
+        ).pack(side=TOP, fill="x", padx=16, pady=(0, 10))
 
-        region_box = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
-        region_box.pack(side=TOP, fill=BOTH, expand=True)
-        region_header = ctk.CTkFrame(region_box, corner_radius=0, fg_color="#ffffff")
-        region_header.pack(side=TOP, fill="x", padx=12, pady=(8, 8))
-        ctk.CTkLabel(region_header, text="取得範囲", font=UI_FONT_BOLD).pack(side=LEFT)
+        self.side_body = ctk.CTkFrame(side, corner_radius=0, fg_color=COLOR_SURFACE)
+        self.side_body.pack(side=TOP, fill=BOTH, expand=True)
+        self._render_side_body()
 
-        self.region_list_frame = ctk.CTkScrollableFrame(region_box, corner_radius=6)
-        self.region_list_frame.pack(side=TOP, fill=BOTH, expand=True, padx=12)
-
-        btns = ctk.CTkFrame(region_box, fg_color="transparent")
-        btns.pack(side=TOP, fill="x", padx=12, pady=8)
-        ctk.CTkButton(btns, text="セル", command=self.edit_cell, width=70, font=UI_FONT).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
-        ctk.CTkButton(btns, text="範囲", command=self.reselect_region, width=70, font=UI_FONT, fg_color="#64748b", hover_color="#475569").pack(side=LEFT, fill="x", expand=True, padx=4)
-        ctk.CTkButton(btns, text="削除", command=self.delete_region, width=70, font=UI_FONT, fg_color="#dc2626", hover_color="#b91c1c").pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
-
-        footer = ctk.CTkFrame(side, corner_radius=0, fg_color="#ffffff")
-        footer.pack(side=BOTTOM, fill="x", padx=12, pady=(8, 12))
-        ctk.CTkButton(footer, text="OCRしてExcelへ反映", command=self.write_excel, height=40, font=UI_FONT, fg_color="#16a34a", hover_color="#15803d").pack(fill="x", pady=(0, 8))
-        self._sync_excel_controls()
-
-    def _detect_tesseract(self) -> str:
-        found = shutil.which("tesseract")
-        if found:
-            return found
-        default = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
-        return str(default) if default.exists() else ""
-
-    def _lang_display(self, value: str) -> str:
-        labels = {
-            "jpn+eng": "日本語 + English",
-            "jpn": "日本語のみ",
-            "eng": "English のみ",
-        }
-        return labels.get(value, value or self._lang_display(DEFAULT_LANG))
-
-    def _lang_value(self, display: str) -> str:
-        values = {
-            "日本語 + English": "jpn+eng",
-            "日本語のみ": "jpn",
-            "English のみ": "eng",
-        }
-        return values.get(display, display or DEFAULT_LANG)
-
-    def _sync_lang_from_display(self, display: str | None = None) -> None:
-        self.lang_var.set(self._lang_value(display or self.lang_display_var.get()))
-
-    def open_settings_modal(self) -> None:
-        if self.settings_window and self.settings_window.winfo_exists():
-            self.settings_window.focus()
-            return
-
-        self.lang_display_var.set(self._lang_display(self.lang_var.get()))
-        window = ctk.CTkToplevel(self.root)
-        self.settings_window = window
-        window.title("設定")
-        window.geometry("360x360")
-        window.resizable(False, False)
-        window.transient(self.root)
-        window.grab_set()
-        window.configure(fg_color="#2f312f")
-
-        panel = ctk.CTkFrame(window, corner_radius=0, fg_color="#2f312f")
-        panel.pack(fill=BOTH, expand=True, padx=18, pady=18)
-        panel.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(panel, text="設定", anchor="w", font=UI_FONT_BOLD, text_color="#f8fafc").grid(row=0, column=0, sticky="ew")
-        ctk.CTkLabel(panel, text="OCR エンジンと言語の設定", anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").grid(row=1, column=0, sticky="ew", pady=(6, 18))
-
-        ctk.CTkLabel(panel, text="OCR 言語", anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").grid(row=2, column=0, sticky="ew", pady=(0, 6))
-        ctk.CTkComboBox(
-            panel,
-            variable=self.lang_display_var,
-            values=["日本語 + English", "日本語のみ", "English のみ"],
-            command=self._sync_lang_from_display,
-            height=32,
-            font=UI_FONT,
-            dropdown_font=UI_FONT,
-            fg_color="#262826",
-            border_color="#555955",
-            button_color="#3f433f",
-            button_hover_color="#555955",
-            text_color="#f8fafc",
-        ).grid(row=3, column=0, sticky="ew")
-
-        ctk.CTkLabel(panel, text="Tesseract パス", anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").grid(row=4, column=0, sticky="ew", pady=(14, 6))
-        ctk.CTkEntry(panel, textvariable=self.tesseract_var, height=32, font=UI_FONT, fg_color="#262826", border_color="#555955", text_color="#f8fafc").grid(row=5, column=0, sticky="ew")
-
-        ctk.CTkLabel(panel, text="設定ファイル", anchor="w", font=UI_FONT_SMALL, text_color="#cbd5e1").grid(row=6, column=0, sticky="ew", pady=(14, 6))
-        file_row = ctk.CTkFrame(panel, fg_color="transparent")
-        file_row.grid(row=7, column=0, sticky="ew")
-        file_row.grid_columnconfigure(0, weight=1)
-        ctk.CTkEntry(file_row, textvariable=self.config_file_var, height=32, font=UI_FONT, fg_color="#262826", border_color="#555955", text_color="#f8fafc").grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        ctk.CTkButton(file_row, text="読込", command=self.load_mapping_from_settings, width=48, height=32, font=UI_FONT_SMALL, fg_color="#3f433f", hover_color="#555955").grid(row=0, column=1, padx=(0, 6))
-        ctk.CTkButton(file_row, text="保存", command=self.save_mapping_from_settings, width=48, height=32, font=UI_FONT_SMALL, fg_color="#3f433f", hover_color="#555955").grid(row=0, column=2)
-
-        action_row = ctk.CTkFrame(panel, fg_color="transparent")
-        action_row.grid(row=8, column=0, sticky="ew", pady=(18, 0))
-        action_row.grid_columnconfigure(0, weight=1)
-        action_row.grid_columnconfigure(1, weight=1)
-        ctk.CTkButton(action_row, text="キャンセル", command=window.destroy, height=32, font=UI_FONT, fg_color="#2f312f", hover_color="#3f433f", border_width=1, border_color="#666a66").grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        ctk.CTkButton(action_row, text="保存", command=self.apply_settings_modal, height=32, font=UI_FONT, fg_color="#2f312f", hover_color="#3f433f", border_width=1, border_color="#666a66").grid(row=0, column=1, sticky="ew", padx=(4, 0))
-
-    def apply_settings_modal(self) -> None:
-        self._sync_lang_from_display()
-        self.status_var.set("OCR設定を更新しました。")
-        if self.settings_window and self.settings_window.winfo_exists():
-            self.settings_window.destroy()
-
-    def _settings_file_path(self) -> Path:
-        raw_path = self.config_file_var.get().strip() or "ocr-config.json"
-        path = Path(raw_path)
-        if not path.is_absolute():
-            path = Path(__file__).resolve().parent / path
-        return path
-
-    def save_mapping_from_settings(self) -> None:
-        self._sync_lang_from_display()
-        self.save_mapping(self._settings_file_path())
-
-    def load_mapping_from_settings(self) -> None:
-        self.load_mapping(self._settings_file_path())
-        self.lang_display_var.set(self._lang_display(self.lang_var.get()))
+    def _toolbar_button(self, parent, text: str, command, fg: str, hover: str, width: int) -> ctk.CTkButton:
+        return ctk.CTkButton(parent, text=text, command=command, width=width, height=30, font=UI_FONT_SMALL, fg_color=fg, hover_color=hover)
 
     def _bind_shortcuts(self) -> None:
         self.root.bind_all("<Control-Left>", self.previous_image)
         self.root.bind_all("<Control-Right>", self.next_image)
-        self.root.bind_all("<Control-Return>", self.write_excel)
+        self.root.bind_all("<Control-s>", self.save_template)
+        self.root.bind_all("<Control-o>", self.load_template)
+        self.root.bind_all("<Control-Return>", self.export_to_excel)
 
-    def open_image(self) -> None:
+    def _on_mode_change(self, _value: str | None = None) -> None:
+        self._render_side_body()
+        self.redraw()
+
+    def _render_side_body(self) -> None:
+        if self.side_body is None:
+            return
+        for child in self.side_body.winfo_children():
+            child.destroy()
+        self._sync_counts()
+        mode = self.mode_var.get()
+        if mode == "テンプレート":
+            self._render_template_mode()
+        elif mode == "確認":
+            self._render_review_mode()
+        else:
+            self._render_export_mode()
+
+    def _render_template_mode(self) -> None:
+        body = self.side_body
+        assert body is not None
+        self.field_check_vars = []
+        self._section_note(body, "1. テンプレート作成", "サンプル画像上で読み取り範囲をドラッグし、項目名を付けます。")
+        ctk.CTkLabel(body, textvariable=self.template_var, anchor="w", font=UI_FONT_SMALL, text_color=COLOR_MUTED, wraplength=340).pack(fill="x", padx=16, pady=(0, 8))
+
+        scroller = ctk.CTkScrollableFrame(body, corner_radius=8, fg_color=COLOR_SURFACE_ALT, border_width=1, border_color=COLOR_BORDER)
+        scroller.pack(side=TOP, fill=BOTH, expand=True, padx=16, pady=(0, 10))
+        if not self.fields:
+            self._empty_state(scroller, "項目がありません", "画像上で範囲をドラッグ")
+        else:
+            for idx, field in enumerate(self.fields):
+                self._field_row(scroller, idx)
+
+        actions = ctk.CTkFrame(body, fg_color="transparent")
+        actions.pack(fill="x", padx=16, pady=(0, 12))
+        ctk.CTkButton(actions, text="項目名", command=self.rename_field, height=34, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(actions, text="範囲変更", command=self.reselect_field, height=34, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).pack(side=LEFT, fill="x", expand=True, padx=4)
+        ctk.CTkButton(actions, text="削除", command=self.delete_field, height=34, font=UI_FONT_SMALL, fg_color=COLOR_DANGER, hover_color=COLOR_DANGER_HOVER).pack(side=LEFT, fill="x", expand=True, padx=(4, 0))
+
+    def _render_review_mode(self) -> None:
+        body = self.side_body
+        assert body is not None
+        self._section_note(body, "2. 読み取り確認", "現在の画像のOCR結果を確認し、必要なら直接修正します。")
+
+        ctk.CTkButton(body, text="現在の画像をOCR", command=self.ocr_current_image, height=36, font=UI_FONT_BOLD, fg_color=COLOR_PRIMARY, hover_color=COLOR_PRIMARY_HOVER).pack(fill="x", padx=16, pady=(0, 8))
+        ctk.CTkLabel(body, textvariable=self.folder_var, anchor="w", font=UI_FONT_SMALL, text_color=COLOR_MUTED, wraplength=340).pack(fill="x", padx=16, pady=(0, 8))
+
+        scroller = ctk.CTkScrollableFrame(body, corner_radius=8, fg_color=COLOR_SURFACE_ALT, border_width=1, border_color=COLOR_BORDER)
+        scroller.pack(side=TOP, fill=BOTH, expand=True, padx=16, pady=(0, 12))
+        if not self.fields:
+            self._empty_state(scroller, "テンプレートがありません", "先に読み取り項目を作成")
+            return
+        if not self.original_image:
+            self._empty_state(scroller, "画像がありません", "サンプル画像またはフォルダを選択")
+            return
+
+        self._ensure_current_results()
+        self.result_vars = []
+        for idx, field in enumerate(self.fields):
+            if not field.enabled:
+                continue
+            row = ctk.CTkFrame(scroller, corner_radius=8, fg_color=COLOR_SURFACE, border_width=1, border_color=COLOR_BORDER)
+            row.pack(fill="x", padx=8, pady=5)
+            row.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(row, text=field.name, anchor="w", font=UI_FONT_BOLD, text_color=COLOR_TEXT).grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 4))
+            var = StringVar(value=self.current_results[idx])
+            var.trace_add("write", lambda *_args, i=idx, v=var: self._set_result(i, v.get()))
+            self.result_vars.append(var)
+            ctk.CTkEntry(row, textvariable=var, height=32, font=UI_FONT_SMALL, fg_color=COLOR_SURFACE_ALT, border_color=COLOR_BORDER, text_color=COLOR_TEXT).grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
+
+    def _render_export_mode(self) -> None:
+        body = self.side_body
+        assert body is not None
+        self._section_note(body, "3. Excel出力", "フォルダ内の画像を、1画像1行としてExcelへ書き出します。")
+
+        panel = ctk.CTkFrame(body, corner_radius=8, fg_color=COLOR_SURFACE_ALT, border_width=1, border_color=COLOR_BORDER)
+        panel.pack(fill="x", padx=16, pady=(0, 10))
+        panel.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(panel, text="画像フォルダ", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_TEXT).grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 2))
+        ctk.CTkLabel(panel, textvariable=self.folder_var, anchor="w", font=UI_FONT_SMALL, text_color=COLOR_MUTED, wraplength=320).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        ctk.CTkButton(panel, text="フォルダ選択", command=self.open_image_folder, height=32, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 12))
+        ctk.CTkLabel(panel, text="出力ファイル", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_TEXT).grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 2))
+        ctk.CTkLabel(panel, textvariable=self.output_var, anchor="w", font=UI_FONT_SMALL, text_color=COLOR_MUTED, wraplength=320).grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 8))
+        ctk.CTkButton(panel, text="出力先を選択", command=self.select_output_file, height=32, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 12))
+
+        enabled_count = len(self._enabled_fields())
+        image_count = len(self.image_files)
+        summary = ctk.CTkFrame(body, corner_radius=8, fg_color=COLOR_SURFACE_ALT, border_width=1, border_color=COLOR_BORDER)
+        summary.pack(fill="x", padx=16, pady=(0, 10))
+        ctk.CTkLabel(summary, text=f"出力対象: {image_count} 画像 / {enabled_count} 項目", anchor="w", font=UI_FONT_BOLD, text_color=COLOR_TEXT).pack(fill="x", padx=12, pady=(12, 4))
+        ctk.CTkLabel(summary, text="列構成: 画像ファイル名 + 有効な項目", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_MUTED).pack(fill="x", padx=12, pady=(0, 12))
+
+        ctk.CTkButton(body, text="Excelへ一括出力", command=self.export_to_excel, height=42, font=UI_FONT_BOLD, fg_color=COLOR_CTA, hover_color=COLOR_CTA_HOVER).pack(side=BOTTOM, fill="x", padx=16, pady=(8, 14))
+
+    def _section_note(self, parent, title: str, note: str) -> None:
+        ctk.CTkLabel(parent, text=title, anchor="w", font=UI_FONT_BOLD, text_color=COLOR_TEXT).pack(fill="x", padx=16, pady=(4, 2))
+        ctk.CTkLabel(parent, text=note, anchor="w", justify="left", font=UI_FONT_SMALL, text_color=COLOR_MUTED, wraplength=340).pack(fill="x", padx=16, pady=(0, 12))
+
+    def _empty_state(self, parent, title: str, note: str) -> None:
+        box = ctk.CTkFrame(parent, fg_color=COLOR_SURFACE_ALT, corner_radius=8)
+        box.pack(fill=BOTH, expand=True, padx=12, pady=20)
+        ctk.CTkLabel(box, text=title, font=UI_FONT_BOLD, text_color=COLOR_TEXT).pack(pady=(28, 4))
+        ctk.CTkLabel(box, text=note, font=UI_FONT_SMALL, text_color=COLOR_MUTED).pack(pady=(0, 28))
+
+    def _field_row(self, parent, idx: int) -> None:
+        field = self.fields[idx]
+        selected = idx == self.selected_index
+        row = ctk.CTkFrame(parent, corner_radius=8, fg_color="#ecfeff" if selected else COLOR_SURFACE, border_width=1, border_color=COLOR_PRIMARY if selected else COLOR_BORDER)
+        row.pack(fill="x", padx=8, pady=5)
+        row.grid_columnconfigure(2, weight=1)
+        var = BooleanVar(value=field.enabled)
+        self.field_check_vars.append(var)
+        ctk.CTkCheckBox(row, text="", variable=var, width=28, command=lambda i=idx, v=var: self.set_field_enabled(i, v.get())).grid(row=0, column=0, rowspan=2, padx=(8, 0), pady=8)
+        ctk.CTkLabel(row, text=self._field_order_label(idx), width=42, height=22, font=UI_FONT_SMALL, fg_color=COLOR_PRIMARY if field.enabled else "#94a3b8", text_color="#ffffff", corner_radius=4).grid(row=0, column=1, sticky="w", padx=(4, 6), pady=(8, 2))
+        ctk.CTkLabel(row, text=field.name, anchor="w", font=UI_FONT_BOLD, text_color=COLOR_TEXT if field.enabled else COLOR_MUTED).grid(row=0, column=2, sticky="ew", padx=(0, 8), pady=(8, 2))
+        ctk.CTkLabel(row, text=self._field_size_text(field), anchor="w", font=UI_FONT_SMALL, text_color=COLOR_MUTED).grid(row=1, column=1, columnspan=2, sticky="ew", padx=(4, 8), pady=(0, 8))
+        for widget in row.winfo_children() + [row]:
+            widget.bind("<Button-1>", lambda _event, i=idx: self.select_field(i))
+
+    def open_sample_image(self) -> None:
         file_name = filedialog.askopenfilename(
-            title="画像を選択",
-            filetypes=[
-                ("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff"),
-                ("All files", "*.*"),
-            ],
+            title="サンプル画像を選択",
+            filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff"), ("All files", "*.*")],
         )
         if not file_name:
             return
+        self.source_folder = None
+        self.folder_var.set("フォルダ未選択")
         self.image_files = [Path(file_name)]
         self.current_image_index = 0
         self._load_current_image(auto_ocr=False)
+        self.mode_var.set("テンプレート")
+        self._render_side_body()
 
     def open_image_folder(self) -> None:
         folder_name = filedialog.askdirectory(title="画像フォルダを選択")
@@ -334,223 +341,260 @@ class ImageOcrExcelApp:
         if not files:
             messagebox.showinfo("画像なし", "選択したフォルダ内に対応画像がありません。")
             return
+        self.source_folder = folder
+        self.folder_var.set(str(folder))
         self.image_files = files
         self.current_image_index = 0
-        self._load_current_image(auto_ocr=bool(self.regions))
+        self._load_current_image(auto_ocr=bool(self.fields))
+        if self.mode_var.get() == "テンプレート":
+            self.mode_var.set("確認")
+        self._render_side_body()
 
     def previous_image(self, _event=None) -> None:
         if len(self.image_files) <= 1:
             return
         self.current_image_index = (self.current_image_index - 1) % len(self.image_files)
-        self._load_current_image(auto_ocr=True)
+        self._load_current_image(auto_ocr=bool(self.fields))
+        self._render_side_body()
 
     def next_image(self, _event=None) -> None:
         if len(self.image_files) <= 1:
             return
         self.current_image_index = (self.current_image_index + 1) % len(self.image_files)
-        self._load_current_image(auto_ocr=True)
+        self._load_current_image(auto_ocr=bool(self.fields))
+        self._render_side_body()
 
     def _load_current_image(self, auto_ocr: bool) -> None:
         if not (0 <= self.current_image_index < len(self.image_files)):
             return
         self.image_path = self.image_files[self.current_image_index]
-        self.original_image = Image.open(self.image_path).convert("RGB")
+        try:
+            self.original_image = Image.open(self.image_path).convert("RGB")
+        except Exception as exc:
+            messagebox.showerror("画像エラー", f"画像を開けませんでした。\n{exc}")
+            return
         self.zoom = self._initial_zoom()
+        self.current_results = [""] * len(self.fields)
         self.image_var.set(self._image_status_text())
         self.image_count_var.set(f"{self.current_image_index + 1} / {len(self.image_files)}")
-        self.reselect_region_index = None
+        self.selected_index = self.selected_index if self.fields else None
+        self.reselect_index = None
         self.redraw()
-        if auto_ocr and self.regions:
-            self._rerun_ocr_for_all_regions()
-        else:
-            self.status_var.set("画像を読み込みました。OCRしたい文字部分をドラッグしてください。")
+        if auto_ocr:
+            self._ocr_all_current(show_errors=False)
+        self.status_var.set("画像を読み込みました。読み取り結果を確認できます。")
 
     def _image_status_text(self) -> str:
         if not self.image_path:
             return "画像未選択"
         if len(self.image_files) > 1:
-            return f"{self.current_image_index + 1}/{len(self.image_files)}: {self.image_path}"
+            return f"{self.current_image_index + 1}/{len(self.image_files)}: {self.image_path.name}"
         return str(self.image_path)
 
-    def _rerun_ocr_for_all_regions(self) -> None:
-        for region in self.regions:
-            region.text = ""
-        self.refresh_region_list()
-        for idx in range(len(self.regions)):
-            if not self._ocr_region(idx):
-                self.refresh_region_list()
-                return
-        self.refresh_region_list()
-        self.status_var.set(f"画像切替に合わせてOCRを再実行しました: {self.current_image_index + 1} / {len(self.image_files)}")
-
-    def select_excel(self) -> None:
+    def select_output_file(self) -> None:
         file_name = filedialog.asksaveasfilename(
-            title="Excelファイルを選択または作成",
+            title="Excel出力先を選択",
             defaultextension=".xlsx",
             filetypes=[("Excel workbook", "*.xlsx")],
         )
         if not file_name:
             return
-        self.excel_path = Path(file_name)
-        self.excel_var.set(str(self.excel_path))
-        self.excel_target_mode = "file"
-        self.excel_mode_var.set("ファイル出力")
-        self._sync_excel_controls()
+        self.output_path = Path(file_name)
+        self.output_var.set(str(self.output_path))
+        self._render_side_body()
 
-    def refresh_open_excel(self, silent: bool = False) -> None:
-        excel = self._get_excel_app(show_error=not silent)
-        if excel is None:
+    def save_template(self, _event=None) -> None:
+        if not self.fields:
+            messagebox.showinfo("項目なし", "保存する読み取り項目がありません。")
             return
+        initial = self.template_path.name if self.template_path else "ocr-template.json"
+        file_name = filedialog.asksaveasfilename(
+            title="テンプレートを保存",
+            initialfile=initial,
+            defaultextension=".json",
+            filetypes=[("JSON", "*.json")],
+        )
+        if not file_name:
+            return
+        path = Path(file_name)
+        data = {
+            "version": TEMPLATE_VERSION,
+            "lang": self.lang_var.get(),
+            "tesseract_path": self.tesseract_var.get(),
+            "sample_image": str(self.image_path) if self.image_path else "",
+            "fields": [asdict(field.normalized()) for field in self.fields],
+        }
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.template_path = path
+        self.template_var.set(str(path))
+        self.status_var.set(f"テンプレートを保存しました: {path}")
+        self._render_side_body()
 
-        books: list[dict[str, object]] = []
+    def load_template(self, _event=None) -> None:
+        file_name = filedialog.askopenfilename(
+            title="テンプレートを読み込み",
+            filetypes=[("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not file_name:
+            return
+        path = Path(file_name)
         try:
-            for book in excel.Workbooks:
-                sheets = [sheet.Name for sheet in book.Worksheets]
-                full_name = str(book.FullName) if str(book.Path) else ""
-                display = f"{book.Name} ({full_name})" if full_name else f"{book.Name} (未保存)"
-                books.append(
-                    {
-                        "name": str(book.Name),
-                        "full_name": full_name,
-                        "display": display,
-                        "sheets": sheets,
-                        "active_sheet": str(book.ActiveSheet.Name),
-                    }
-                )
+            data = json.loads(path.read_text(encoding="utf-8"))
+            fields = [self._field_from_data(item) for item in data.get("fields", [])]
         except Exception as exc:
-            messagebox.showerror("Excel取得エラー", f"開いているExcelブックを取得できませんでした。\n{exc}")
+            messagebox.showerror("テンプレートエラー", f"テンプレートを読み込めませんでした。\n{exc}")
             return
-
-        self.open_excel_books = books
-        self.book_combo.configure(values=[str(book["display"]) for book in books])
-        if not books:
-            self.open_book_var.set("")
-            self.sheet_combo.configure(values=[])
-            self.status_var.set("開いているExcelブックがありません。")
-            if not silent:
-                messagebox.showinfo("Excel未検出", "開いているExcelブックがありません。")
+        if not fields:
+            messagebox.showerror("テンプレートエラー", "読み取り項目がありません。")
             return
+        self.fields = fields
+        self.current_results = [""] * len(self.fields)
+        self.selected_index = 0
+        self.template_path = path
+        self.template_var.set(str(path))
+        self.lang_var.set(data.get("lang") or DEFAULT_LANG)
+        self.lang_display_var.set(self._lang_display(self.lang_var.get()))
+        if data.get("tesseract_path"):
+            self.tesseract_var.set(data["tesseract_path"])
+        sample_raw = data.get("sample_image") or ""
+        sample = Path(sample_raw) if sample_raw else None
+        if sample and sample.exists() and not self.original_image:
+            self.image_files = [sample]
+            self.current_image_index = 0
+            self._load_current_image(auto_ocr=False)
+        self.status_var.set(f"テンプレートを読み込みました: {path}")
+        self._render_side_body()
+        self.redraw()
 
-        current = self.open_book_var.get()
-        displays = [str(book["display"]) for book in books]
-        if current not in displays:
-            self.open_book_var.set(displays[0])
-        self.on_open_book_select()
-        self.use_open_excel(show_message=False)
-        self.status_var.set("開いているExcelブックを取得しました。")
+    def _field_from_data(self, item: dict) -> TemplateField:
+        if "cell" in item:
+            return TemplateField(str(item.get("name") or item.get("cell") or "項目"), int(item["x1"]), int(item["y1"]), int(item["x2"]), int(item["y2"]), bool(item.get("enabled", True))).normalized()
+        return TemplateField(str(item["name"]), int(item["x1"]), int(item["y1"]), int(item["x2"]), int(item["y2"]), bool(item.get("enabled", True))).normalized()
 
-    def on_open_book_select(self, _event=None) -> None:
-        book = self._selected_open_book()
-        if not book:
-            self.sheet_combo.configure(values=[])
+    def open_settings_modal(self) -> None:
+        self.lang_display_var.set(self._lang_display(self.lang_var.get()))
+        window = ctk.CTkToplevel(self.root)
+        window.title("設定")
+        window.geometry("420x300")
+        window.resizable(False, False)
+        window.transient(self.root)
+        window.grab_set()
+        window.configure(fg_color=COLOR_BG)
+
+        panel = ctk.CTkFrame(window, corner_radius=8, fg_color=COLOR_SURFACE, border_width=1, border_color=COLOR_BORDER)
+        panel.pack(fill=BOTH, expand=True, padx=18, pady=18)
+        panel.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(panel, text="OCR設定", anchor="w", font=UI_FONT_TITLE, text_color=COLOR_TEXT).grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 14))
+        ctk.CTkLabel(panel, text="OCR言語", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_TEXT).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 6))
+        ctk.CTkComboBox(
+            panel,
+            variable=self.lang_display_var,
+            values=["日本語 + English", "日本語のみ", "English のみ"],
+            command=self._sync_lang_from_display,
+            height=32,
+            font=UI_FONT,
+            dropdown_font=UI_FONT,
+            fg_color=COLOR_SURFACE_ALT,
+            border_color=COLOR_BORDER,
+            button_color=COLOR_PRIMARY,
+            button_hover_color=COLOR_PRIMARY_HOVER,
+            text_color=COLOR_TEXT,
+        ).grid(row=2, column=0, sticky="ew", padx=16)
+        ctk.CTkLabel(panel, text="Tesseractパス", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_TEXT).grid(row=3, column=0, sticky="ew", padx=16, pady=(14, 6))
+        ctk.CTkEntry(panel, textvariable=self.tesseract_var, height=32, font=UI_FONT, fg_color=COLOR_SURFACE_ALT, border_color=COLOR_BORDER, text_color=COLOR_TEXT).grid(row=4, column=0, sticky="ew", padx=16)
+        buttons = ctk.CTkFrame(panel, fg_color="transparent")
+        buttons.grid(row=5, column=0, sticky="ew", padx=16, pady=(20, 16))
+        buttons.grid_columnconfigure(0, weight=1)
+        buttons.grid_columnconfigure(1, weight=1)
+        ctk.CTkButton(buttons, text="キャンセル", command=window.destroy, height=34, font=UI_FONT, fg_color=COLOR_SURFACE, hover_color="#e2e8f0", border_width=1, border_color=COLOR_BORDER, text_color=COLOR_TEXT).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ctk.CTkButton(buttons, text="保存", command=lambda: self._apply_settings(window), height=34, font=UI_FONT, fg_color=COLOR_PRIMARY, hover_color=COLOR_PRIMARY_HOVER).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+    def _apply_settings(self, window: ctk.CTkToplevel) -> None:
+        self._sync_lang_from_display()
+        self.status_var.set("OCR設定を更新しました。")
+        window.destroy()
+
+    def select_field(self, idx: int) -> None:
+        if not (0 <= idx < len(self.fields)):
             return
-        raw_sheets = book.get("sheets")
-        sheets = [str(sheet) for sheet in raw_sheets] if isinstance(raw_sheets, list) else []
-        self.sheet_combo.configure(values=sheets)
-        if not sheets:
-            self.sheet_var.set("")
+        self.selected_index = idx
+        self._render_side_body()
+        self.redraw()
+
+    def set_field_enabled(self, idx: int, enabled: bool) -> None:
+        if 0 <= idx < len(self.fields):
+            self.fields[idx].enabled = enabled
+            self._sync_counts()
+            self.redraw()
+
+    def rename_field(self) -> None:
+        idx = self._require_field_selection()
+        if idx is None:
             return
-        if self.sheet_var.get() not in sheets:
-            self.sheet_var.set(str(book.get("active_sheet") or sheets[0]))
-        self.excel_target_mode = "open"
-        self.excel_mode_var.set("開いているExcel")
-        self.excel_var.set(f"開いているExcel: {book['display']}")
-        self._sync_excel_controls()
-
-    def on_excel_mode_change(self, value: str) -> None:
-        if value == "開いているExcel":
-            self.use_open_excel()
-        else:
-            self.use_file_excel()
-
-    def _sync_excel_controls(self) -> None:
-        if self.excel_target_mode == "file":
-            self.excel_action_button.configure(
-                text="ファイル選択",
-                command=self.select_excel,
-                fg_color="#64748b",
-                hover_color="#475569",
-            )
-        else:
-            self.excel_action_button.configure(
-                text="更新",
-                command=self.refresh_open_excel,
-                fg_color=["#3B8ED0", "#1F6AA5"],
-                hover_color=["#36719F", "#144870"],
-            )
-
-    def use_open_excel(self, show_message: bool = True) -> None:
-        if not self.open_excel_books:
-            self.refresh_open_excel()
-        book = self._selected_open_book()
-        if not book:
+        name = simpledialog.askstring("項目名", "読み取り項目名を入力してください。", initialvalue=self.fields[idx].name)
+        if name is None:
             return
-        self.excel_target_mode = "open"
-        self.excel_mode_var.set("開いているExcel")
-        self.excel_var.set(f"開いているExcel: {book['display']}")
-        self._sync_excel_controls()
-        if show_message:
-            self.status_var.set("開いているExcelへ反映する設定にしました。")
+        name = self._unique_field_name(name.strip() or self.fields[idx].name, skip_index=idx)
+        self.fields[idx].name = name
+        self._render_side_body()
+        self.redraw()
 
-    def use_file_excel(self) -> None:
-        self.excel_target_mode = "file"
-        self.excel_mode_var.set("ファイル出力")
-        self.excel_var.set(str(self.excel_path) if self.excel_path else "Excel未選択")
-        self._sync_excel_controls()
-        self.status_var.set("Excelファイルへ保存する設定にしました。")
+    def reselect_field(self) -> None:
+        idx = self._require_field_selection()
+        if idx is None:
+            return
+        self.reselect_index = idx
+        self.status_var.set(f"{self.fields[idx].name} の範囲を再設定します。画像上で新しい範囲をドラッグしてください。")
 
-    def _initial_zoom(self) -> float:
-        if not self.original_image:
-            return 1.0
-        max_w = max(self.canvas.winfo_width(), 900)
-        max_h = max(self.canvas.winfo_height(), 600)
-        w, h = self.original_image.size
-        return min(1.0, max(0.15, min(max_w / w, max_h / h)))
+    def delete_field(self) -> None:
+        idx = self._require_field_selection()
+        if idx is None:
+            return
+        del self.fields[idx]
+        if idx < len(self.current_results):
+            del self.current_results[idx]
+        self.selected_index = min(idx, len(self.fields) - 1) if self.fields else None
+        self._render_side_body()
+        self.redraw()
+
+    def _require_field_selection(self) -> int | None:
+        if self.selected_index is None or not (0 <= self.selected_index < len(self.fields)):
+            messagebox.showinfo("項目未選択", "読み取り項目を選択してください。")
+            return None
+        return self.selected_index
 
     def redraw(self) -> None:
         self.canvas.delete("all")
         self.canvas_rects.clear()
         self.canvas_labels.clear()
         if not self.original_image:
+            self._draw_canvas_empty()
             return
-
         w, h = self.original_image.size
-        scaled = self.original_image.resize((int(w * self.zoom), int(h * self.zoom)), Image.Resampling.LANCZOS)
+        scaled = self.original_image.resize((max(1, int(w * self.zoom)), max(1, int(h * self.zoom))), Image.Resampling.LANCZOS)
         self.preview_image = ImageTk.PhotoImage(scaled)
         self.image_item = self.canvas.create_image(0, 0, anchor="nw", image=self.preview_image)
         self.canvas.configure(scrollregion=(0, 0, scaled.width, scaled.height))
+        for idx, _field in enumerate(self.fields):
+            self._draw_field(idx)
 
-        for idx, region in enumerate(self.regions):
-            self._draw_region(idx)
+    def _draw_canvas_empty(self) -> None:
+        self.canvas.configure(scrollregion=(0, 0, 900, 600))
+        self.canvas.create_text(450, 280, text="サンプル画像を開いてください", fill="#cbd5e1", font=UI_FONT_TITLE)
+        self.canvas.create_text(450, 312, text="テンプレート作成では、読み取りたい場所をドラッグして項目名を付けます。", fill="#94a3b8", font=UI_FONT_SMALL)
 
-    def _draw_region(self, idx: int) -> None:
-        region = self.regions[idx].normalized()
-        x1, y1, x2, y2 = [v * self.zoom for v in (region.x1, region.y1, region.x2, region.y2)]
-        color = "#ff3366" if idx == self.selected_index else "#24c8ff"
-        label_bg = "#ff3366" if idx == self.selected_index else "#1d4ed8"
-        width = 3 if idx == self.selected_index else 2
-        rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
-        label_text = f"範囲{idx + 1} -> {region.cell}"
-        label_x = x1 + 4
-        label_y = max(4, y1 - 24)
-        label = self.canvas.create_text(
-            label_x + 7,
-            label_y + 4,
-            anchor="nw",
-            text=label_text,
-            fill="white",
-            font=UI_FONT_CANVAS,
-        )
+    def _draw_field(self, idx: int) -> None:
+        field = self.fields[idx].normalized()
+        x1, y1, x2, y2 = [value * self.zoom for value in (field.x1, field.y1, field.x2, field.y2)]
+        selected = idx == self.selected_index
+        color = COLOR_CTA if selected else ("#2dd4bf" if field.enabled else "#94a3b8")
+        label_bg = COLOR_CTA_HOVER if selected else (COLOR_PRIMARY if field.enabled else COLOR_MUTED)
+        rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=3 if selected else 2)
+        label_text = f"{self._field_order_label(idx)} {field.name}"
+        label = self.canvas.create_text(x1 + 10, max(6, y1 - 22), anchor="nw", text=label_text, fill="white", font=UI_FONT_CANVAS)
         label_box = self.canvas.bbox(label)
         if label_box:
-            bg = self.canvas.create_rectangle(
-                label_box[0] - 5,
-                label_box[1] - 3,
-                label_box[2] + 5,
-                label_box[3] + 3,
-                fill=label_bg,
-                outline=label_bg,
-            )
+            bg = self.canvas.create_rectangle(label_box[0] - 5, label_box[1] - 3, label_box[2] + 5, label_box[3] + 3, fill=label_bg, outline=label_bg)
             self.canvas.tag_lower(bg, label)
         self.canvas_rects[idx] = rect
         self.canvas_labels[idx] = label
@@ -561,7 +605,7 @@ class ImageOcrExcelApp:
         self.drag_start = (int(self.canvas.canvasx(event.x) / self.zoom), int(self.canvas.canvasy(event.y) / self.zoom))
         x = self.drag_start[0] * self.zoom
         y = self.drag_start[1] * self.zoom
-        self.drag_rect = self.canvas.create_rectangle(x, y, x, y, outline="#ffe066", width=2, dash=(4, 2))
+        self.drag_rect = self.canvas.create_rectangle(x, y, x, y, outline=COLOR_CTA, width=2, dash=(4, 2))
 
     def on_mouse_drag(self, event) -> None:
         if not self.drag_start or not self.drag_rect:
@@ -588,40 +632,32 @@ class ImageOcrExcelApp:
         if (x2 - x1) < 8 or (y2 - y1) < 8:
             return
 
-        if self.reselect_region_index is not None:
-            idx = self.reselect_region_index
-            self.reselect_region_index = None
-            if not (0 <= idx < len(self.regions)):
+        if self.reselect_index is not None:
+            idx = self.reselect_index
+            self.reselect_index = None
+            if not (0 <= idx < len(self.fields)):
                 return
-            region = self.regions[idx]
-            region.x1 = x1
-            region.y1 = y1
-            region.x2 = x2
-            region.y2 = y2
-            region.text = ""
+            field = self.fields[idx]
+            field.x1, field.y1, field.x2, field.y2 = x1, y1, x2, y2
+            if idx < len(self.current_results):
+                self.current_results[idx] = ""
             self.selected_index = idx
-            self.refresh_region_list()
+            self.status_var.set(f"{field.name} の範囲を更新しました。")
+            self._render_side_body()
             self.redraw()
-            self._ocr_region(idx)
-            self.refresh_region_list()
             return
 
-        default_cell = f"A{len(self.regions) + 1}"
-        cell = simpledialog.askstring("セル指定", "この範囲を書き込むセルを入力してください。", initialvalue=default_cell)
-        if cell is None:
+        name = simpledialog.askstring("項目名", "読み取り項目名を入力してください。", initialvalue=f"項目{len(self.fields) + 1}")
+        if name is None:
             return
-        cell = cell.strip().upper()
-        if not self._valid_cell(cell):
-            messagebox.showerror("セル指定エラー", "A1形式のセル番地を入力してください。")
-            return
-
-        region = Region(f"範囲{len(self.regions) + 1}", cell, x1, y1, x2, y2)
-        self.regions.append(region)
-        self.selected_index = len(self.regions) - 1
-        self.refresh_region_list()
+        name = self._unique_field_name(name.strip() or f"項目{len(self.fields) + 1}")
+        self.fields.append(TemplateField(name, x1, y1, x2, y2))
+        self.current_results.append("")
+        self.selected_index = len(self.fields) - 1
+        self.mode_var.set("テンプレート")
+        self.status_var.set(f"{name} を追加しました。")
+        self._render_side_body()
         self.redraw()
-        self._ocr_region(self.selected_index)
-        self.refresh_region_list()
 
     def on_mouse_wheel(self, event) -> None:
         if not self.original_image:
@@ -634,152 +670,106 @@ class ImageOcrExcelApp:
         self.zoom = max(0.1, min(4.0, self.zoom * factor))
         self.redraw()
 
-    def select_region(self, idx: int) -> None:
-        self.selected_index = idx
-        self.refresh_region_list()
-        self.redraw()
-
-    def refresh_region_list(self) -> None:
-        for child in self.region_list_frame.winfo_children():
-            child.destroy()
-        self.region_check_vars = []
-        for idx, region in enumerate(self.regions):
-            text = region.text.replace("\n", " ").strip()
-            result_text = text if text else "OCR 未実行"
-            row_color = "#e8f1ff" if idx == self.selected_index else "#ffffff"
-            border_color = "#2563eb" if idx == self.selected_index else "#d7dee8"
-            row = ctk.CTkFrame(self.region_list_frame, fg_color=row_color, corner_radius=6, border_width=1, border_color=border_color)
-            row.pack(fill="x", pady=3)
-            row.grid_columnconfigure(2, weight=1)
-            var = BooleanVar(value=region.enabled)
-            self.region_check_vars.append(var)
-            checkbox = ctk.CTkCheckBox(
-                row,
-                text="",
-                variable=var,
-                width=28,
-                font=UI_FONT,
-                command=lambda i=idx, v=var: self.set_region_enabled(i, v.get()),
-            )
-            checkbox.grid(row=0, column=0, rowspan=2, padx=(8, 2), pady=8)
-            label = ctk.CTkLabel(
-                row,
-                text=f"範囲{idx + 1}",
-                font=UI_FONT_SMALL,
-                text_color="#ffffff",
-                fg_color="#2563eb",
-                corner_radius=4,
-                width=54,
-                height=22,
-            )
-            label.grid(row=0, column=1, sticky="w", padx=(4, 6), pady=(8, 2))
-            cell = ctk.CTkLabel(row, text=f"-> {region.cell}", anchor="w", font=UI_FONT_SMALL, text_color="#64748b")
-            cell.grid(row=0, column=2, sticky="ew", padx=(0, 8), pady=(8, 2))
-            value = ctk.CTkLabel(row, text=result_text, anchor="w", text_color="#1f2937" if text else "#94a3b8", font=UI_FONT_SMALL)
-            value.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(4, 8), pady=(0, 8))
-            for widget in (row, label, cell, value):
-                widget.bind("<Button-1>", lambda _event, i=idx: self.select_region(i))
-
-    def set_region_enabled(self, idx: int, enabled: bool) -> None:
-        if 0 <= idx < len(self.regions):
-            self.regions[idx].enabled = enabled
-
-    def edit_cell(self) -> None:
-        idx = self._require_selection()
-        if idx is None:
-            return
-        cell = simpledialog.askstring("セル変更", "書き込み先セルを入力してください。", initialvalue=self.regions[idx].cell)
-        if cell is None:
-            return
-        cell = cell.strip().upper()
-        if not self._valid_cell(cell):
-            messagebox.showerror("セル指定エラー", "A1形式のセル番地を入力してください。")
-            return
-        self.regions[idx].cell = cell
-        self.refresh_region_list()
-        self.redraw()
-        self._ocr_region(idx)
-        self.refresh_region_list()
-
-    def reselect_region(self) -> None:
-        idx = self._require_selection()
-        if idx is None:
-            return
-        self.reselect_region_index = idx
-        self.status_var.set(f"{self.regions[idx].name} の範囲を再設定します。画像上で新しい範囲をドラッグしてください。")
-
-    def delete_region(self) -> None:
-        idx = self._require_selection()
-        if idx is None:
-            return
-        del self.regions[idx]
-        self.selected_index = min(idx, len(self.regions) - 1) if self.regions else None
-        self.refresh_region_list()
-        self.redraw()
-
-    def _require_selection(self) -> int | None:
-        if self.selected_index is None or not (0 <= self.selected_index < len(self.regions)):
-            messagebox.showinfo("範囲未選択", "右側の一覧から範囲を選択してください。")
-            return None
-        return self.selected_index
-
-    def _valid_cell(self, cell: str) -> bool:
-        if not CELL_RE.match(cell):
-            return False
-        try:
-            coordinate_to_tuple(cell)
-            return True
-        except ValueError:
-            return False
-
-    def ocr_selected(self) -> None:
-        idx = self._require_selection()
-        if idx is None:
-            return
-        self._ocr_region(idx)
-        self.refresh_region_list()
-
-    def ocr_all(self) -> None:
-        if not self.regions:
-            messagebox.showinfo("範囲なし", "先に画像上で取得範囲を作成してください。")
-            return
-        for idx in range(len(self.regions)):
-            self._ocr_region(idx)
-        self.refresh_region_list()
-
-    def _ocr_region(self, idx: int) -> bool:
+    def ocr_current_image(self) -> None:
         if not self.original_image:
             messagebox.showerror("画像未選択", "先に画像を開いてください。")
+            return
+        if not self._enabled_fields():
+            messagebox.showerror("項目なし", "有効な読み取り項目がありません。")
+            return
+        if self._ocr_all_current(show_errors=True):
+            self.status_var.set("現在の画像をOCRしました。")
+            self._render_side_body()
+
+    def _ocr_all_current(self, show_errors: bool) -> bool:
+        if not self.original_image:
             return False
-        ocr = self._load_tesseract()
-        if ocr is None:
-            return False
-        region = self.regions[idx].normalized()
-        crop = self.original_image.crop((region.x1, region.y1, region.x2, region.y2))
-        prepared = self._prepare_for_ocr(crop)
-        try:
-            text = ocr.image_to_string(
-                prepared,
-                lang=self.lang_var.get().strip() or DEFAULT_LANG,
-                config="--oem 3 --psm 6",
-            )
-        except ocr.TesseractNotFoundError:
-            messagebox.showerror("OCRエラー", "Tesseractが見つかりません。Tesseract欄に実行ファイルのパスを入力してください。")
-            return False
-        except ocr.TesseractError as exc:
-            messagebox.showerror("OCRエラー", str(exc))
-            return False
-        cleaned = self._clean_text(text)
-        self.regions[idx].text = cleaned
-        self.status_var.set(f"{self.regions[idx].name} をOCRしました。")
+        self._ensure_current_results()
+        for idx, field in enumerate(self.fields):
+            if not field.enabled:
+                continue
+            text = self._ocr_field(self.original_image, field, show_errors=show_errors)
+            if text is None:
+                return False
+            self.current_results[idx] = text
         return True
 
-    def _load_tesseract(self):
+    def _ocr_field(self, image: Image.Image, field: TemplateField, show_errors: bool) -> str | None:
+        ocr = self._load_tesseract(show_errors=show_errors)
+        if ocr is None:
+            return None
+        region = field.normalized()
+        crop = image.crop((region.x1, region.y1, region.x2, region.y2))
+        prepared = self._prepare_for_ocr(crop)
+        try:
+            text = ocr.image_to_string(prepared, lang=self.lang_var.get().strip() or DEFAULT_LANG, config="--oem 3 --psm 6")
+        except ocr.TesseractNotFoundError:
+            if show_errors:
+                messagebox.showerror("OCRエラー", "Tesseractが見つかりません。設定で実行ファイルのパスを指定してください。")
+            return None
+        except ocr.TesseractError as exc:
+            if show_errors:
+                messagebox.showerror("OCRエラー", str(exc))
+            return None
+        return self._clean_text(text)
+
+    def export_to_excel(self, _event=None) -> None:
+        fields = self._enabled_fields()
+        if not fields:
+            messagebox.showerror("項目なし", "有効な読み取り項目がありません。")
+            return
+        if not self.image_files:
+            messagebox.showerror("画像なし", "画像フォルダを選択してください。")
+            return
+        if not self.output_path:
+            self.select_output_file()
+            if not self.output_path:
+                return
+        if self.output_path.exists() and not messagebox.askyesno("上書き確認", f"既存ファイルを上書きします。\n{self.output_path}"):
+            return
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "OCR"
+        sheet.append(["画像ファイル", *[field.name for field in fields]])
+
+        total = len(self.image_files)
+        self.progress_var.set(f"0 / {total}")
+        self.status_var.set("Excel出力を開始しました。")
+        self.root.update_idletasks()
+
+        for row_index, image_path in enumerate(self.image_files, start=1):
+            try:
+                image = Image.open(image_path).convert("RGB")
+            except Exception as exc:
+                messagebox.showerror("画像エラー", f"{image_path.name} を開けませんでした。\n{exc}")
+                return
+            row = [image_path.name]
+            for field in fields:
+                text = self._ocr_field(image, field, show_errors=True)
+                if text is None:
+                    self.progress_var.set("")
+                    return
+                row.append(text)
+            sheet.append(row)
+            self.progress_var.set(f"{row_index} / {total}")
+            self.status_var.set(f"OCR中: {image_path.name}")
+            self.root.update_idletasks()
+
+        for column_cells in sheet.columns:
+            max_length = max(len(str(cell.value or "")) for cell in column_cells)
+            sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 42)
+
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        workbook.save(self.output_path)
+        self.progress_var.set("")
+        self.status_var.set(f"Excelへ出力しました: {self.output_path}")
+        messagebox.showinfo("完了", f"{total} 画像をExcelへ出力しました。\n{self.output_path}")
+
+    def _load_tesseract(self, show_errors: bool):
         if pytesseract is None:
-            messagebox.showerror(
-                "OCRライブラリ未導入",
-                "pytesseractがインストールされていません。pip install -r requirements.txt を実行してください。",
-            )
+            if show_errors:
+                messagebox.showerror("OCRライブラリ未導入", "pytesseractがインストールされていません。uv sync を実行してください。")
             return None
         path = self.tesseract_var.get().strip()
         if path:
@@ -796,204 +786,77 @@ class ImageOcrExcelApp:
 
     def _clean_text(self, text: str) -> str:
         lines = [line.strip() for line in text.splitlines()]
-        lines = [line for line in lines if line]
-        return " ".join(lines).strip()
+        return " ".join(line for line in lines if line).strip()
 
-    def _checked_region_indexes(self) -> list[int]:
-        return [idx for idx, region in enumerate(self.regions) if region.enabled]
+    def _detect_tesseract(self) -> str:
+        found = shutil.which("tesseract")
+        if found:
+            return found
+        default = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+        return str(default) if default.exists() else ""
 
-    def _checked_regions(self) -> list[Region]:
-        return [self.regions[idx] for idx in self._checked_region_indexes()]
+    def _initial_zoom(self) -> float:
+        if not self.original_image:
+            return 1.0
+        max_w = max(self.canvas.winfo_width(), 900)
+        max_h = max(self.canvas.winfo_height(), 600)
+        w, h = self.original_image.size
+        return min(1.0, max(0.15, min(max_w / w, max_h / h)))
 
-    def _ensure_checked_regions_ocr(self) -> bool:
-        for idx in self._checked_region_indexes():
-            if not self.regions[idx].text.strip():
-                if not self._ocr_region(idx):
-                    return False
-        self.refresh_region_list()
-        return True
+    def _enabled_fields(self) -> list[TemplateField]:
+        return [field for field in self.fields if field.enabled]
 
-    def write_excel(self, _event=None) -> None:
-        if self.excel_target_mode == "open":
-            self.write_open_excel()
-            return
-        if not self.excel_path:
-            messagebox.showerror("Excel未選択", "先にExcelファイルを選択してください。")
-            return
-        if not self.regions:
-            messagebox.showerror("範囲なし", "先に取得範囲を作成してください。")
-            return
-        target_regions = self._checked_regions()
-        if not target_regions:
-            messagebox.showerror("反映対象なし", "Excelへ反映する範囲にチェックを入れてください。")
-            return
-        if not self._ensure_checked_regions_ocr():
-            return
+    def _ensure_current_results(self) -> None:
+        if len(self.current_results) < len(self.fields):
+            self.current_results.extend([""] * (len(self.fields) - len(self.current_results)))
+        elif len(self.current_results) > len(self.fields):
+            self.current_results = self.current_results[: len(self.fields)]
 
-        if self.excel_path.exists():
-            workbook = load_workbook(self.excel_path)
-        else:
-            workbook = Workbook()
+    def _set_result(self, idx: int, value: str) -> None:
+        self._ensure_current_results()
+        if 0 <= idx < len(self.current_results):
+            self.current_results[idx] = value
 
-        sheet_name = self.sheet_var.get().strip() or "Sheet1"
-        if sheet_name in workbook.sheetnames:
-            sheet = workbook[sheet_name]
-        else:
-            sheet = workbook.create_sheet(sheet_name)
-            if "Sheet" in workbook.sheetnames and len(workbook.sheetnames) > 1 and workbook["Sheet"].max_row == 1:
-                default_sheet = workbook["Sheet"]
-                if default_sheet["A1"].value is None:
-                    workbook.remove(default_sheet)
+    def _sync_counts(self) -> None:
+        enabled = len(self._enabled_fields())
+        total = len(self.fields)
+        self.field_count_var.set(f"{enabled} / {total} 項目")
 
-        for region in target_regions:
-            if not self._valid_cell(region.cell):
-                messagebox.showerror("セル指定エラー", f"{region.name} のセル指定が不正です: {region.cell}")
-                return
-            sheet[region.cell] = region.text.strip()
+    def _field_order_label(self, idx: int) -> str:
+        return f"#{idx + 1}"
 
-        workbook.save(self.excel_path)
-        self.status_var.set(f"Excelへ反映しました: {self.excel_path}")
-        messagebox.showinfo("完了", "Excelへの反映が完了しました。")
+    def _field_size_text(self, field: TemplateField) -> str:
+        normalized = field.normalized()
+        return f"{normalized.x2 - normalized.x1} x {normalized.y2 - normalized.y1}px"
 
-    def write_open_excel(self) -> None:
-        if not self.regions:
-            messagebox.showerror("範囲なし", "先に取得範囲を作成してください。")
-            return
-        target_regions = self._checked_regions()
-        if not target_regions:
-            messagebox.showerror("反映対象なし", "Excelへ反映する範囲にチェックを入れてください。")
-            return
+    def _unique_field_name(self, name: str, skip_index: int | None = None) -> str:
+        used = {field.name for idx, field in enumerate(self.fields) if idx != skip_index}
+        if name not in used:
+            return name
+        base = name
+        count = 2
+        while f"{base} {count}" in used:
+            count += 1
+        return f"{base} {count}"
 
-        if not self.open_excel_books:
-            self.refresh_open_excel()
-
-        book_info = self._selected_open_book()
-        if not book_info:
-            messagebox.showerror("Excel未選択", "開いているブックを選択してください。")
-            return
-
-        if not self._ensure_checked_regions_ocr():
-            return
-
-        excel = self._get_excel_app(show_error=True)
-        if excel is None:
-            return
-
-        try:
-            workbook = self._find_open_workbook(excel, book_info)
-            if workbook is None:
-                messagebox.showerror("Excel未検出", "選択したブックが見つかりません。更新ボタンで再取得してください。")
-                return
-
-            sheet_name = self.sheet_var.get().strip() or str(book_info.get("active_sheet") or "")
-            worksheet = workbook.Worksheets(sheet_name)
-            written_cells = []
-            for region in target_regions:
-                if not self._valid_cell(region.cell):
-                    messagebox.showerror("セル指定エラー", f"{region.name} のセル指定が不正です: {region.cell}")
-                    return
-                worksheet.Range(region.cell).Value = region.text.strip()
-                written_cells.append(region.cell)
-            worksheet.Activate()
-            workbook.Activate()
-        except Exception as exc:
-            messagebox.showerror("Excel反映エラー", f"開いているExcelへ反映できませんでした。\n{exc}")
-            return
-
-        cells = ", ".join(written_cells)
-        self.status_var.set(f"開いているExcelへ反映しました: {book_info['name']} / {self.sheet_var.get()} / {cells}")
-        messagebox.showinfo("完了", f"開いているExcelへ{len(written_cells)}セル反映しました。\n反映先: {book_info['name']} / {self.sheet_var.get()}\nセル: {cells}\n保存はExcel側で行ってください。")
-
-    def _get_excel_app(self, show_error: bool):
-        if win32com is None:
-            if show_error:
-                messagebox.showerror("Excel連携ライブラリ未導入", "pywin32がインストールされていません。uv sync を実行してください。")
-            return None
-        try:
-            return win32com.client.GetActiveObject("Excel.Application")
-        except Exception:
-            if show_error:
-                messagebox.showerror("Excel未起動", "起動中のExcelを取得できませんでした。Excelで対象ブックを開いてから再実行してください。")
-            return None
-
-    def _selected_open_book(self) -> dict[str, object] | None:
-        display = self.open_book_var.get()
-        for book in self.open_excel_books:
-            if book["display"] == display:
-                return book
-        return None
-
-    def _find_open_workbook(self, excel, book_info: dict[str, object]):
-        target_full_name = str(book_info.get("full_name") or "")
-        target_name = str(book_info.get("name") or "")
-        for workbook in excel.Workbooks:
-            full_name = str(workbook.FullName) if str(workbook.Path) else ""
-            if target_full_name and full_name == target_full_name:
-                return workbook
-            if not target_full_name and str(workbook.Name) == target_name:
-                return workbook
-        return None
-
-    def save_mapping(self, file_name: str | Path | None = None) -> None:
-        if file_name is None:
-            file_name = filedialog.asksaveasfilename(
-                title="設定を保存",
-                defaultextension=".json",
-                filetypes=[("JSON", "*.json")],
-            )
-            if not file_name:
-                return
-        path = Path(file_name)
-        data = {
-            "image_path": str(self.image_path) if self.image_path else "",
-            "excel_path": str(self.excel_path) if self.excel_path else "",
-            "excel_target_mode": self.excel_target_mode,
-            "open_book": self.open_book_var.get(),
-            "sheet": self.sheet_var.get(),
-            "lang": self.lang_var.get(),
-            "tesseract_path": self.tesseract_var.get(),
-            "regions": [asdict(region.normalized()) for region in self.regions],
+    def _lang_display(self, value: str) -> str:
+        labels = {
+            "jpn+eng": "日本語 + English",
+            "jpn": "日本語のみ",
+            "eng": "English のみ",
         }
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        self.config_file_var.set(str(path))
-        self.status_var.set(f"設定を保存しました: {path}")
+        return labels.get(value, value or self._lang_display(DEFAULT_LANG))
 
-    def load_mapping(self, file_name: str | Path | None = None) -> None:
-        if file_name is None:
-            file_name = filedialog.askopenfilename(
-                title="設定を読み込み",
-                filetypes=[("JSON", "*.json"), ("All files", "*.*")],
-            )
-            if not file_name:
-                return
-        path = Path(file_name)
-        if not path.exists():
-            messagebox.showerror("設定なし", f"設定ファイルが見つかりません。\n{path}")
-            return
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("image_path") and Path(data["image_path"]).exists():
-            self.image_files = [Path(data["image_path"])]
-            self.current_image_index = 0
-            self._load_current_image(auto_ocr=False)
-        if data.get("excel_path"):
-            self.excel_path = Path(data["excel_path"])
-            self.excel_var.set(str(self.excel_path))
-        self.excel_target_mode = data.get("excel_target_mode") or "file"
-        self.excel_mode_var.set("開いているExcel" if self.excel_target_mode == "open" else "ファイル出力")
-        self._sync_excel_controls()
-        if data.get("open_book"):
-            self.open_book_var.set(data["open_book"])
-        self.sheet_var.set(data.get("sheet") or "Sheet1")
-        self.lang_var.set(data.get("lang") or DEFAULT_LANG)
-        if data.get("tesseract_path"):
-            self.tesseract_var.set(data["tesseract_path"])
-        self.regions = [Region(**item).normalized() for item in data.get("regions", [])]
-        self.selected_index = 0 if self.regions else None
-        self.refresh_region_list()
-        self.redraw()
-        self.config_file_var.set(str(path))
-        self.status_var.set(f"設定を読み込みました: {path}")
+    def _lang_value(self, display: str) -> str:
+        values = {
+            "日本語 + English": "jpn+eng",
+            "日本語のみ": "jpn",
+            "English のみ": "eng",
+        }
+        return values.get(display, display or DEFAULT_LANG)
+
+    def _sync_lang_from_display(self, display: str | None = None) -> None:
+        self.lang_var.set(self._lang_value(display or self.lang_display_var.get()))
 
 
 def main() -> None:
