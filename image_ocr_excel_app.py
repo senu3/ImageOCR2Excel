@@ -260,7 +260,9 @@ class ImageOcrExcelApp:
 
         actions = ctk.CTkFrame(body, fg_color="transparent")
         actions.pack(fill="x", padx=16, pady=(0, 12))
-        ctk.CTkButton(actions, text="項目名", command=self.rename_field, height=34, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).pack(side=LEFT, fill="x", expand=True, padx=(0, 3))
+        ctk.CTkButton(actions, text="上へ", command=self.move_field_up, height=34, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).pack(side=LEFT, fill="x", expand=True, padx=(0, 3))
+        ctk.CTkButton(actions, text="下へ", command=self.move_field_down, height=34, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).pack(side=LEFT, fill="x", expand=True, padx=3)
+        ctk.CTkButton(actions, text="項目名", command=self.rename_field, height=34, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).pack(side=LEFT, fill="x", expand=True, padx=3)
         ctk.CTkButton(actions, text="後処理", command=self.edit_postprocess, height=34, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).pack(side=LEFT, fill="x", expand=True, padx=3)
         ctk.CTkButton(actions, text="範囲", command=self.reselect_field, height=34, font=UI_FONT_SMALL, fg_color=COLOR_SECONDARY, hover_color=COLOR_SECONDARY_HOVER).pack(side=LEFT, fill="x", expand=True, padx=3)
         ctk.CTkButton(actions, text="削除", command=self.delete_field, height=34, font=UI_FONT_SMALL, fg_color=COLOR_DANGER, hover_color=COLOR_DANGER_HOVER).pack(side=LEFT, fill="x", expand=True, padx=(3, 0))
@@ -618,6 +620,27 @@ class ImageOcrExcelApp:
             self.fields[idx].enabled = enabled
             self._sync_counts()
             self.redraw()
+
+    def move_field_up(self) -> None:
+        self._move_selected_field(-1)
+
+    def move_field_down(self) -> None:
+        self._move_selected_field(1)
+
+    def _move_selected_field(self, direction: int) -> None:
+        idx = self._require_field_selection()
+        if idx is None:
+            return
+        new_idx = idx + direction
+        if not (0 <= new_idx < len(self.fields)):
+            return
+        self._ensure_current_results()
+        self.fields[idx], self.fields[new_idx] = self.fields[new_idx], self.fields[idx]
+        self.current_results[idx], self.current_results[new_idx] = self.current_results[new_idx], self.current_results[idx]
+        self.selected_index = new_idx
+        self.status_var.set("項目順を変更しました。Excel出力の列順にも反映されます。")
+        self._render_side_body()
+        self.redraw()
 
     def rename_field(self) -> None:
         idx = self._require_field_selection()
