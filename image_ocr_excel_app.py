@@ -7,7 +7,8 @@ from pathlib import Path
 from tkinter import BOTH, BOTTOM, HORIZONTAL, LEFT, RIGHT, TOP, VERTICAL, BooleanVar, Canvas, Scrollbar, StringVar, filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.utils.cell import coordinate_to_tuple
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageTk
 
 try:
@@ -103,6 +104,11 @@ class ImageOcrExcelApp:
         self.field_count_var = StringVar(value="0 項目")
         self.status_var = StringVar(value="サンプル画像を開き、読み取りたい範囲をドラッグしてください。")
         self.progress_var = StringVar(value="")
+        self.output_sheet_var = StringVar(value="OCR")
+        self.output_write_mode_var = StringVar(value="上書き")
+        self.output_start_cell_var = StringVar(value="A1")
+        self.output_include_filename_var = BooleanVar(value=True)
+        self.output_include_header_var = BooleanVar(value=True)
         self.lang_var = StringVar(value=DEFAULT_LANG)
         self.lang_display_var = StringVar(value=self._lang_display(DEFAULT_LANG))
         self.tesseract_var = StringVar(value=self._detect_tesseract())
@@ -285,10 +291,35 @@ class ImageOcrExcelApp:
 
         enabled_count = len(self._enabled_fields())
         image_count = len(self.image_files)
+        column_note = "画像ファイル名 + 有効な項目" if self.output_include_filename_var.get() else "有効な項目のみ"
         summary = ctk.CTkFrame(body, corner_radius=8, fg_color=COLOR_SURFACE_ALT, border_width=1, border_color=COLOR_BORDER)
         summary.pack(fill="x", padx=16, pady=(0, 10))
         ctk.CTkLabel(summary, text=f"出力対象: {image_count} 画像 / {enabled_count} 項目", anchor="w", font=UI_FONT_BOLD, text_color=COLOR_TEXT).pack(fill="x", padx=12, pady=(12, 4))
-        ctk.CTkLabel(summary, text="列構成: 画像ファイル名 + 有効な項目", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_MUTED).pack(fill="x", padx=12, pady=(0, 12))
+        ctk.CTkLabel(summary, text=f"列構成: {column_note}", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_MUTED).pack(fill="x", padx=12, pady=(0, 12))
+
+        settings = ctk.CTkFrame(body, corner_radius=8, fg_color=COLOR_SURFACE_ALT, border_width=1, border_color=COLOR_BORDER)
+        settings.pack(fill="x", padx=16, pady=(0, 10))
+        settings.grid_columnconfigure(0, weight=1)
+        settings.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(settings, text="出力設定", anchor="w", font=UI_FONT_BOLD, text_color=COLOR_TEXT).grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(12, 8))
+        ctk.CTkLabel(settings, text="シート名", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_TEXT).grid(row=1, column=0, sticky="ew", padx=(12, 4), pady=(0, 4))
+        ctk.CTkLabel(settings, text="開始セル", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_TEXT).grid(row=1, column=1, sticky="ew", padx=(4, 12), pady=(0, 4))
+        ctk.CTkEntry(settings, textvariable=self.output_sheet_var, height=32, font=UI_FONT_SMALL, fg_color=COLOR_SURFACE, border_color=COLOR_BORDER, text_color=COLOR_TEXT).grid(row=2, column=0, sticky="ew", padx=(12, 4), pady=(0, 8))
+        ctk.CTkEntry(settings, textvariable=self.output_start_cell_var, height=32, font=UI_FONT_SMALL, fg_color=COLOR_SURFACE, border_color=COLOR_BORDER, text_color=COLOR_TEXT).grid(row=2, column=1, sticky="ew", padx=(4, 12), pady=(0, 8))
+        ctk.CTkLabel(settings, text="書き込み方法", anchor="w", font=UI_FONT_SMALL, text_color=COLOR_TEXT).grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 4))
+        ctk.CTkSegmentedButton(
+            settings,
+            values=["上書き", "追記"],
+            variable=self.output_write_mode_var,
+            font=UI_FONT_SMALL,
+            selected_color=COLOR_PRIMARY,
+            selected_hover_color=COLOR_PRIMARY_HOVER,
+            unselected_color="#e2e8f0",
+            unselected_hover_color="#cbd5e1",
+            text_color=COLOR_TEXT,
+        ).grid(row=4, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
+        ctk.CTkCheckBox(settings, text="画像ファイル名列を出力", variable=self.output_include_filename_var, font=UI_FONT_SMALL, text_color=COLOR_TEXT).grid(row=5, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 6))
+        ctk.CTkCheckBox(settings, text="ヘッダー行を出力", variable=self.output_include_header_var, font=UI_FONT_SMALL, text_color=COLOR_TEXT).grid(row=6, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 12))
 
         ctk.CTkButton(body, text="Excelへ一括出力", command=self.export_to_excel, height=42, font=UI_FONT_BOLD, fg_color=COLOR_CTA, hover_color=COLOR_CTA_HOVER).pack(side=BOTTOM, fill="x", padx=16, pady=(8, 14))
 
@@ -422,6 +453,13 @@ class ImageOcrExcelApp:
             "lang": self.lang_var.get(),
             "tesseract_path": self.tesseract_var.get(),
             "sample_image": str(self.image_path) if self.image_path else "",
+            "output_settings": {
+                "sheet_name": self.output_sheet_var.get(),
+                "write_mode": self.output_write_mode_var.get(),
+                "start_cell": self.output_start_cell_var.get(),
+                "include_filename": self.output_include_filename_var.get(),
+                "include_header": self.output_include_header_var.get(),
+            },
             "fields": [asdict(field.normalized()) for field in self.fields],
         }
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -456,6 +494,7 @@ class ImageOcrExcelApp:
         self.lang_display_var.set(self._lang_display(self.lang_var.get()))
         if data.get("tesseract_path"):
             self.tesseract_var.set(data["tesseract_path"])
+        self._load_output_settings(data.get("output_settings") or {})
         sample_raw = data.get("sample_image") or ""
         sample = Path(sample_raw) if sample_raw else None
         if sample and sample.exists() and not self.original_image:
@@ -470,6 +509,18 @@ class ImageOcrExcelApp:
         if "cell" in item:
             return TemplateField(str(item.get("name") or item.get("cell") or "項目"), int(item["x1"]), int(item["y1"]), int(item["x2"]), int(item["y2"]), bool(item.get("enabled", True))).normalized()
         return TemplateField(str(item["name"]), int(item["x1"]), int(item["y1"]), int(item["x2"]), int(item["y2"]), bool(item.get("enabled", True))).normalized()
+
+    def _load_output_settings(self, settings: dict) -> None:
+        if settings.get("sheet_name"):
+            self.output_sheet_var.set(str(settings["sheet_name"]))
+        if settings.get("write_mode") in {"上書き", "追記"}:
+            self.output_write_mode_var.set(str(settings["write_mode"]))
+        if settings.get("start_cell"):
+            self.output_start_cell_var.set(str(settings["start_cell"]))
+        if "include_filename" in settings:
+            self.output_include_filename_var.set(bool(settings["include_filename"]))
+        if "include_header" in settings:
+            self.output_include_header_var.set(bool(settings["include_header"]))
 
     def open_settings_modal(self) -> None:
         self.lang_display_var.set(self._lang_display(self.lang_var.get()))
@@ -725,13 +776,26 @@ class ImageOcrExcelApp:
             self.select_output_file()
             if not self.output_path:
                 return
-        if self.output_path.exists() and not messagebox.askyesno("上書き確認", f"既存ファイルを上書きします。\n{self.output_path}"):
+
+        settings = self._validated_export_settings()
+        if settings is None:
             return
 
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = "OCR"
-        sheet.append(["画像ファイル", *[field.name for field in fields]])
+        write_mode = settings["write_mode"]
+        sheet_name = settings["sheet_name"]
+        start_row = settings["start_row"]
+        start_col = settings["start_col"]
+        include_filename = settings["include_filename"]
+        include_header = settings["include_header"]
+
+        if write_mode == "上書き" and self.output_path.exists() and not messagebox.askyesno("上書き確認", f"既存ファイルを上書きします。\n{self.output_path}"):
+            return
+
+        workbook, sheet, row_cursor = self._prepare_output_sheet(sheet_name, write_mode, start_row)
+        headers = self._export_headers(fields, include_filename)
+        if include_header and row_cursor == start_row:
+            self._write_excel_row(sheet, row_cursor, start_col, headers)
+            row_cursor += 1
 
         total = len(self.image_files)
         self.progress_var.set(f"0 / {total}")
@@ -744,27 +808,84 @@ class ImageOcrExcelApp:
             except Exception as exc:
                 messagebox.showerror("画像エラー", f"{image_path.name} を開けませんでした。\n{exc}")
                 return
-            row = [image_path.name]
+            row = [image_path.name] if include_filename else []
             for field in fields:
                 text = self._ocr_field(image, field, show_errors=True)
                 if text is None:
                     self.progress_var.set("")
                     return
                 row.append(text)
-            sheet.append(row)
+            self._write_excel_row(sheet, row_cursor, start_col, row)
+            row_cursor += 1
             self.progress_var.set(f"{row_index} / {total}")
             self.status_var.set(f"OCR中: {image_path.name}")
             self.root.update_idletasks()
 
-        for column_cells in sheet.columns:
-            max_length = max(len(str(cell.value or "")) for cell in column_cells)
-            sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 42)
+        self._fit_output_columns(sheet)
 
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         workbook.save(self.output_path)
         self.progress_var.set("")
         self.status_var.set(f"Excelへ出力しました: {self.output_path}")
         messagebox.showinfo("完了", f"{total} 画像をExcelへ出力しました。\n{self.output_path}")
+
+    def _validated_export_settings(self) -> dict[str, object] | None:
+        sheet_name = self.output_sheet_var.get().strip() or "OCR"
+        if len(sheet_name) > 31 or any(char in sheet_name for char in "[]:*?/\\"):
+            messagebox.showerror("出力設定エラー", "シート名は31文字以内で、次の文字は使えません: []:*?/\\")
+            return None
+
+        start_cell = self.output_start_cell_var.get().strip().upper() or "A1"
+        try:
+            start_row, start_col = coordinate_to_tuple(start_cell)
+        except ValueError:
+            messagebox.showerror("出力設定エラー", "開始セルは A1 形式で入力してください。")
+            return None
+
+        self.output_sheet_var.set(sheet_name)
+        self.output_start_cell_var.set(start_cell)
+        return {
+            "sheet_name": sheet_name,
+            "write_mode": self.output_write_mode_var.get(),
+            "start_row": start_row,
+            "start_col": start_col,
+            "include_filename": self.output_include_filename_var.get(),
+            "include_header": self.output_include_header_var.get(),
+        }
+
+    def _prepare_output_sheet(self, sheet_name: str, write_mode: str, start_row: int):
+        if write_mode == "追記" and self.output_path and self.output_path.exists():
+            workbook = load_workbook(self.output_path)
+            sheet = workbook[sheet_name] if sheet_name in workbook.sheetnames else workbook.create_sheet(sheet_name)
+            row_cursor = max(start_row, sheet.max_row + 1) if self._sheet_has_values(sheet) else start_row
+            return workbook, sheet, row_cursor
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = sheet_name
+        return workbook, sheet, start_row
+
+    def _sheet_has_values(self, sheet) -> bool:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.value not in (None, ""):
+                    return True
+        return False
+
+    def _export_headers(self, fields: list[TemplateField], include_filename: bool) -> list[str]:
+        headers = [field.name for field in fields]
+        if include_filename:
+            return ["画像ファイル", *headers]
+        return headers
+
+    def _write_excel_row(self, sheet, row_index: int, start_col: int, values: list[str]) -> None:
+        for offset, value in enumerate(values):
+            sheet.cell(row=row_index, column=start_col + offset, value=value)
+
+    def _fit_output_columns(self, sheet) -> None:
+        for column_cells in sheet.columns:
+            max_length = max(len(str(cell.value or "")) for cell in column_cells)
+            sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 42)
 
     def _load_tesseract(self, show_errors: bool):
         if pytesseract is None:
