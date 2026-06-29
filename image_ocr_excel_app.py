@@ -1,28 +1,28 @@
 from __future__ import annotations
 
-import json
-import re
-import shutil
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from tkinter import BOTH, BOTTOM, HORIZONTAL, LEFT, RIGHT, TOP, VERTICAL, BooleanVar, Canvas, Scrollbar, StringVar, filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
-from openpyxl import Workbook, load_workbook
-from openpyxl.utils.cell import coordinate_to_tuple
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageTk
+from PIL import Image, ImageTk
 
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
+from excel_exporter import ExcelExporter, ExportSettings, validate_export_settings
+from ocr_engine import (
+    DEFAULT_LANG,
+    OcrEngine,
+    apply_postprocess,
+    clean_text,
+    detect_tesseract,
+    fill_missing_field_source_size,
+    prepare_for_ocr,
+    scaled_field,
+)
+from ocr_models import POSTPROCESS_OPTIONS, TemplateField
+from template_store import build_template_data, fields_from_template, load_template as read_template, save_template as write_template
 
 
 APP_TITLE = "Image OCR to Excel"
-DEFAULT_LANG = "jpn+eng"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
-TEMPLATE_VERSION = 3
-POSTPROCESS_OPTIONS = ["そのまま", "数字のみ", "数値抽出", "英数字のみ"]
 
 UI_FONT_FAMILY = "Meiryo"
 UI_FONT = (UI_FONT_FAMILY, 13)
@@ -48,40 +48,6 @@ COLOR_CTA_HOVER = "#ea580c"
 COLOR_CANVAS_BG = "#111827"
 COLOR_CANVAS_PANEL = "#1f2937"
 COLOR_CANVAS_TOOLBAR = "#0f172a"
-
-
-@dataclass
-class TemplateField:
-    name: str
-    x1: int
-    y1: int
-    x2: int
-    y2: int
-    enabled: bool = True
-    source_width: int = 0
-    source_height: int = 0
-    postprocess: str = "そのまま"
-    replace_from: str = ""
-    replace_to: str = ""
-    remove_text: str = ""
-
-    def normalized(self) -> "TemplateField":
-        x1, x2 = sorted((self.x1, self.x2))
-        y1, y2 = sorted((self.y1, self.y2))
-        return TemplateField(
-            self.name,
-            x1,
-            y1,
-            x2,
-            y2,
-            self.enabled,
-            self.source_width,
-            self.source_height,
-            self.postprocess,
-            self.replace_from,
-            self.replace_to,
-            self.remove_text,
-        )
 
 
 class ImageOcrExcelApp:
@@ -136,6 +102,8 @@ class ImageOcrExcelApp:
 
         self.side_body: ctk.CTkFrame | None = None
         self.canvas: Canvas
+        self.ocr_engine = OcrEngine()
+        self.excel_exporter = ExcelExporter()
 
         self._build_ui()
         self._bind_shortcuts()
@@ -473,21 +441,20 @@ class ImageOcrExcelApp:
         if not file_name:
             return
         path = Path(file_name)
-        data = {
-            "version": TEMPLATE_VERSION,
-            "lang": self.lang_var.get(),
-            "tesseract_path": self.tesseract_var.get(),
-            "sample_image": str(self.image_path) if self.image_path else "",
-            "output_settings": {
+        data = build_template_data(
+            self.fields,
+            self.lang_var.get(),
+            self.tesseract_var.get(),
+            str(self.image_path) if self.image_path else "",
+            {
                 "sheet_name": self.output_sheet_var.get(),
                 "write_mode": self.output_write_mode_var.get(),
                 "start_cell": self.output_start_cell_var.get(),
                 "include_filename": self.output_include_filename_var.get(),
                 "include_header": self.output_include_header_var.get(),
             },
-            "fields": [asdict(field.normalized()) for field in self.fields],
-        }
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        )
+        write_template(path, data)
         self.template_path = path
         self.template_var.set(str(path))
         self.status_var.set(f"テンプレートを保存しました: {path}")
@@ -502,8 +469,8 @@ class ImageOcrExcelApp:
             return
         path = Path(file_name)
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            fields = [self._field_from_data(item) for item in data.get("fields", [])]
+            data = read_template(path)
+            fields = fields_from_template(data)
         except Exception as exc:
             messagebox.showerror("テンプレートエラー", f"テンプレートを読み込めませんでした。\n{exc}")
             return
@@ -529,29 +496,6 @@ class ImageOcrExcelApp:
         self.status_var.set(f"テンプレートを読み込みました: {path}")
         self._render_side_body()
         self.redraw()
-
-    def _field_from_data(self, item: dict) -> TemplateField:
-        postprocess = str(item.get("postprocess") or "そのまま")
-        if postprocess not in POSTPROCESS_OPTIONS:
-            postprocess = "そのまま"
-        if "cell" in item:
-            name = str(item.get("name") or item.get("cell") or "項目")
-        else:
-            name = str(item["name"])
-        return TemplateField(
-            name,
-            int(item["x1"]),
-            int(item["y1"]),
-            int(item["x2"]),
-            int(item["y2"]),
-            bool(item.get("enabled", True)),
-            int(item.get("source_width") or 0),
-            int(item.get("source_height") or 0),
-            postprocess,
-            str(item.get("replace_from") or ""),
-            str(item.get("replace_to") or ""),
-            str(item.get("remove_text") or ""),
-        ).normalized()
 
     def _load_output_settings(self, settings: dict) -> None:
         if settings.get("sheet_name"):
@@ -900,27 +844,10 @@ class ImageOcrExcelApp:
         return text
 
     def _ocr_field_with_error(self, image: Image.Image, field: TemplateField, show_errors: bool) -> tuple[str | None, str | None]:
-        ocr = self._load_tesseract(show_errors=show_errors)
-        if ocr is None:
-            return None, "OCRライブラリまたはTesseractを初期化できません。"
-        region = self._scaled_field(field, image)
-        if (region.x2 - region.x1) < 1 or (region.y2 - region.y1) < 1:
-            return None, "読み取り範囲が画像外、または小さすぎます。"
-        crop = image.crop((region.x1, region.y1, region.x2, region.y2))
-        prepared = self._prepare_for_ocr(crop)
-        try:
-            text = ocr.image_to_string(prepared, lang=self.lang_var.get().strip() or DEFAULT_LANG, config="--oem 3 --psm 6")
-        except ocr.TesseractNotFoundError:
-            error = "Tesseractが見つかりません。設定で実行ファイルのパスを指定してください。"
-            if show_errors:
-                messagebox.showerror("OCRエラー", error)
-            return None, error
-        except ocr.TesseractError as exc:
-            error = str(exc)
-            if show_errors:
-                messagebox.showerror("OCRエラー", error)
-            return None, error
-        return self._apply_postprocess(self._clean_text(text), field), None
+        text, error = self.ocr_engine.recognize_field(image, field, self.lang_var.get(), self.tesseract_var.get().strip())
+        if error and show_errors:
+            messagebox.showerror("OCRエラー", error)
+        return text, error
 
     def export_to_excel(self, _event=None) -> None:
         fields = self._enabled_fields()
@@ -939,178 +866,64 @@ class ImageOcrExcelApp:
         if settings is None:
             return
 
-        write_mode = settings["write_mode"]
-        sheet_name = settings["sheet_name"]
-        start_row = settings["start_row"]
-        start_col = settings["start_col"]
-        include_filename = settings["include_filename"]
-        include_header = settings["include_header"]
-
-        if write_mode == "上書き" and self.output_path.exists() and not messagebox.askyesno("上書き確認", f"既存ファイルを上書きします。\n{self.output_path}"):
+        if settings.write_mode == "上書き" and self.output_path.exists() and not messagebox.askyesno("上書き確認", f"既存ファイルを上書きします。\n{self.output_path}"):
             return
 
-        workbook, sheet, row_cursor = self._prepare_output_sheet(sheet_name, write_mode, start_row)
-        headers = self._export_headers(fields, include_filename)
-        if include_header and row_cursor == start_row:
-            self._write_excel_row(sheet, row_cursor, start_col, headers)
-            row_cursor += 1
-
         total = len(self.image_files)
-        errors: list[dict[str, str]] = []
         self.progress_var.set(f"0 / {total}")
         self.status_var.set("Excel出力を開始しました。")
         self.root.update_idletasks()
 
-        for row_index, image_path in enumerate(self.image_files, start=1):
-            try:
-                image = Image.open(image_path).convert("RGB")
-            except Exception as exc:
-                errors.append({"image": image_path.name, "field": "", "error": f"画像を開けませんでした: {exc}"})
-                self.progress_var.set(f"{row_index} / {total}")
-                self.status_var.set(f"スキップ: {image_path.name}")
-                self.root.update_idletasks()
-                continue
-            row = [image_path.name] if include_filename else []
-            for field in fields:
-                text, error = self._ocr_field_with_error(image, field, show_errors=False)
-                if text is None:
-                    errors.append({"image": image_path.name, "field": field.name, "error": error or "OCRに失敗しました。"})
-                    row.append("")
-                    continue
-                row.append(text)
-            self._write_excel_row(sheet, row_cursor, start_col, row)
-            row_cursor += 1
-            self.progress_var.set(f"{row_index} / {total}")
+        def update_progress(row_index: int, total_count: int, image_path: Path) -> None:
+            self.progress_var.set(f"{row_index} / {total_count}")
             self.status_var.set(f"OCR中: {image_path.name}")
             self.root.update_idletasks()
 
-        self._fit_output_columns(sheet)
-        self._write_error_sheet(workbook, errors)
-
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        workbook.save(self.output_path)
+        result = self.excel_exporter.export(
+            self.output_path,
+            self.image_files,
+            fields,
+            settings,
+            lambda image, field: self._ocr_field_with_error(image, field, show_errors=False),
+            update_progress,
+        )
         self.progress_var.set("")
-        if errors:
-            self.status_var.set(f"Excelへ出力しました（エラー {len(errors)} 件）: {self.output_path}")
-            messagebox.showwarning("完了（エラーあり）", f"{total} 画像の処理が完了しました。\nエラー {len(errors)} 件は Errors シートに出力しました。\n{self.output_path}")
+        if result.errors:
+            self.status_var.set(f"Excelへ出力しました（エラー {len(result.errors)} 件）: {self.output_path}")
+            messagebox.showwarning("完了（エラーあり）", f"{result.total_images} 画像の処理が完了しました。\nエラー {len(result.errors)} 件は Errors シートに出力しました。\n{self.output_path}")
         else:
             self.status_var.set(f"Excelへ出力しました: {self.output_path}")
-            messagebox.showinfo("完了", f"{total} 画像をExcelへ出力しました。\n{self.output_path}")
+            messagebox.showinfo("完了", f"{result.total_images} 画像をExcelへ出力しました。\n{self.output_path}")
 
-    def _validated_export_settings(self) -> dict[str, object] | None:
-        sheet_name = self.output_sheet_var.get().strip() or "OCR"
-        if len(sheet_name) > 31 or any(char in sheet_name for char in "[]:*?/\\"):
-            messagebox.showerror("出力設定エラー", "シート名は31文字以内で、次の文字は使えません: []:*?/\\")
+    def _validated_export_settings(self) -> ExportSettings | None:
+        settings, error = validate_export_settings(
+            self.output_sheet_var.get(),
+            self.output_write_mode_var.get(),
+            self.output_start_cell_var.get(),
+            self.output_include_filename_var.get(),
+            self.output_include_header_var.get(),
+        )
+        if error:
+            messagebox.showerror("出力設定エラー", error)
             return None
-
-        start_cell = self.output_start_cell_var.get().strip().upper() or "A1"
-        try:
-            start_row, start_col = coordinate_to_tuple(start_cell)
-        except ValueError:
-            messagebox.showerror("出力設定エラー", "開始セルは A1 形式で入力してください。")
-            return None
-
-        self.output_sheet_var.set(sheet_name)
-        self.output_start_cell_var.set(start_cell)
-        return {
-            "sheet_name": sheet_name,
-            "write_mode": self.output_write_mode_var.get(),
-            "start_row": start_row,
-            "start_col": start_col,
-            "include_filename": self.output_include_filename_var.get(),
-            "include_header": self.output_include_header_var.get(),
-        }
-
-    def _prepare_output_sheet(self, sheet_name: str, write_mode: str, start_row: int):
-        if write_mode == "追記" and self.output_path and self.output_path.exists():
-            workbook = load_workbook(self.output_path)
-            sheet = workbook[sheet_name] if sheet_name in workbook.sheetnames else workbook.create_sheet(sheet_name)
-            row_cursor = max(start_row, sheet.max_row + 1) if self._sheet_has_values(sheet) else start_row
-            return workbook, sheet, row_cursor
-
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = sheet_name
-        return workbook, sheet, start_row
-
-    def _sheet_has_values(self, sheet) -> bool:
-        for row in sheet.iter_rows():
-            for cell in row:
-                if cell.value not in (None, ""):
-                    return True
-        return False
-
-    def _export_headers(self, fields: list[TemplateField], include_filename: bool) -> list[str]:
-        headers = [field.name for field in fields]
-        if include_filename:
-            return ["画像ファイル", *headers]
-        return headers
-
-    def _write_excel_row(self, sheet, row_index: int, start_col: int, values: list[str]) -> None:
-        for offset, value in enumerate(values):
-            sheet.cell(row=row_index, column=start_col + offset, value=value)
-
-    def _fit_output_columns(self, sheet) -> None:
-        for column_cells in sheet.columns:
-            max_length = max(len(str(cell.value or "")) for cell in column_cells)
-            sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 42)
-
-    def _write_error_sheet(self, workbook, errors: list[dict[str, str]]) -> None:
-        if "Errors" in workbook.sheetnames:
-            workbook.remove(workbook["Errors"])
-        if not errors:
-            return
-        sheet = workbook.create_sheet("Errors")
-        sheet.append(["画像ファイル", "項目", "エラー"])
-        for error in errors:
-            sheet.append([error["image"], error["field"], error["error"]])
-        self._fit_output_columns(sheet)
+        self.output_sheet_var.set(settings.sheet_name)
+        self.output_start_cell_var.set(self.output_start_cell_var.get().strip().upper() or "A1")
+        return settings
 
     def _load_tesseract(self, show_errors: bool):
-        if pytesseract is None:
-            if show_errors:
-                messagebox.showerror("OCRライブラリ未導入", "pytesseractがインストールされていません。uv sync を実行してください。")
-            return None
-        path = self.tesseract_var.get().strip()
-        if path:
-            pytesseract.pytesseract.tesseract_cmd = path
-        return pytesseract
+        return self.ocr_engine
 
     def _prepare_for_ocr(self, image: Image.Image) -> Image.Image:
-        scale = 3 if max(image.size) < 500 else 2
-        image = image.resize((image.width * scale, image.height * scale), Image.Resampling.LANCZOS)
-        image = ImageOps.grayscale(image)
-        image = ImageEnhance.Contrast(image).enhance(1.8)
-        image = image.filter(ImageFilter.SHARPEN)
-        return image
+        return prepare_for_ocr(image)
 
     def _clean_text(self, text: str) -> str:
-        lines = [line.strip() for line in text.splitlines()]
-        return " ".join(line for line in lines if line).strip()
+        return clean_text(text)
 
     def _apply_postprocess(self, text: str, field: TemplateField) -> str:
-        value = text
-        if field.replace_from:
-            value = value.replace(field.replace_from, field.replace_to)
-        for token in [part.strip() for part in field.remove_text.split(",") if part.strip()]:
-            value = value.replace(token, "")
-        value = " ".join(value.split()).strip()
-
-        if field.postprocess == "数字のみ":
-            return re.sub(r"\D+", "", value)
-        if field.postprocess == "数値抽出":
-            match = re.search(r"[-+]?\d+(?:[.,]\d+)?", value)
-            return match.group(0).replace(",", ".") if match else ""
-        if field.postprocess == "英数字のみ":
-            return re.sub(r"[^0-9A-Za-z]+", "", value)
-        return value
+        return apply_postprocess(text, field)
 
     def _detect_tesseract(self) -> str:
-        found = shutil.which("tesseract")
-        if found:
-            return found
-        default = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
-        return str(default) if default.exists() else ""
+        return detect_tesseract()
 
     def _initial_zoom(self) -> float:
         if not self.original_image:
@@ -1124,39 +937,10 @@ class ImageOcrExcelApp:
         return [field for field in self.fields if field.enabled]
 
     def _fill_missing_field_source_size(self, image_size: tuple[int, int]) -> None:
-        width, height = image_size
-        for field in self.fields:
-            if not field.source_width or not field.source_height:
-                field.source_width = width
-                field.source_height = height
+        fill_missing_field_source_size(self.fields, image_size)
 
     def _scaled_field(self, field: TemplateField, image: Image.Image | None) -> TemplateField:
-        region = field.normalized()
-        if image is None or not region.source_width or not region.source_height:
-            return region
-        target_width, target_height = image.size
-        scale_x = target_width / region.source_width
-        scale_y = target_height / region.source_height
-        x1 = round(region.x1 * scale_x)
-        y1 = round(region.y1 * scale_y)
-        x2 = round(region.x2 * scale_x)
-        y2 = round(region.y2 * scale_y)
-        x1, x2 = sorted((max(0, min(target_width, x1)), max(0, min(target_width, x2))))
-        y1, y2 = sorted((max(0, min(target_height, y1)), max(0, min(target_height, y2))))
-        return TemplateField(
-            region.name,
-            x1,
-            y1,
-            x2,
-            y2,
-            region.enabled,
-            target_width,
-            target_height,
-            region.postprocess,
-            region.replace_from,
-            region.replace_to,
-            region.remove_text,
-        )
+        return scaled_field(field, image)
 
     def _ensure_current_results(self) -> None:
         if len(self.current_results) < len(self.fields):

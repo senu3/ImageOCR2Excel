@@ -111,6 +111,17 @@ sample2.png | ...  | ... | ...
 画像ファイル | 項目 | エラー
 ```
 
+## 構成
+
+処理ロジックはUIから分離しています。
+
+- `image_ocr_excel_app.py`: CustomTkinter UI
+- `ocr_models.py`: テンプレート項目モデル
+- `ocr_engine.py`: OCR、画像前処理、後処理、範囲スケーリング
+- `excel_exporter.py`: Excel出力、追記、エラーシート生成
+- `template_store.py`: テンプレートJSON保存・読み込み
+- `docs/UI_DESIGN.md`: 将来のWeb/Tauri UI設計方針
+
 ## ショートカット
 
 - `Ctrl+Left`: 前の画像
