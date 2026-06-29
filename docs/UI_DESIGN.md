@@ -21,15 +21,6 @@ The current CustomTkinter UI is serviceable for the Python desktop version, but 
 
 This keeps local file access and Python OCR libraries while allowing a much richer editor experience.
 
-## Design System
-
-- Style: flat, dense, utility-focused.
-- Primary: teal `#0D9488`.
-- CTA: orange `#F97316`.
-- Text: dark teal/slate.
-- Typography: Plus Jakarta Sans or system sans in a future web UI.
-- Avoid: marketing-style hero sections, decorative gradients, one-off colors, and card nesting.
-
 ## Primary Layout
 
 ```text
