@@ -5,6 +5,9 @@
   --surface: oklch(0.205 0.028 265);
   --surface-2: oklch(0.255 0.03 265);
   --surface-3: oklch(0.315 0.035 265);
+  --control: oklch(0.235 0.03 265);
+  --control-hover: oklch(0.285 0.034 265);
+  --control-active: oklch(0.325 0.085 300);
   --border: oklch(0.37 0.04 265);
   --border-strong: oklch(0.48 0.075 275);
   --text: oklch(0.93 0.012 265);
@@ -124,9 +127,9 @@ select:focus-visible,
   width: 2.25rem;
   height: 2.25rem;
   place-items: center;
-  border: 1px solid var(--border-strong);
+  border: 1px solid color-mix(in oklch, var(--accent) 70%, var(--border) 30%);
   border-radius: var(--radius-sm);
-  background: var(--accent-soft);
+  background: var(--control-active);
   color: var(--text);
   font-size: 0.74rem;
   font-weight: 750;
@@ -158,9 +161,9 @@ select:focus-visible,
 .tool-button,
 .icon-button,
 .segmented-control button {
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklch, var(--border) 78%, var(--bg-deep) 22%);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--control);
   color: var(--text);
   cursor: pointer;
   transition: background-color 160ms cubic-bezier(0.25, 1, 0.5, 1), border-color 160ms cubic-bezier(0.25, 1, 0.5, 1), transform 120ms cubic-bezier(0.25, 1, 0.5, 1);
@@ -180,7 +183,7 @@ select:focus-visible,
 .segmented-control button.active,
 .workflow-tabs button.active {
   border-color: var(--accent);
-  background: var(--accent-soft);
+  background: var(--control-active);
   color: var(--text);
 }
 
@@ -188,7 +191,7 @@ select:focus-visible,
 .icon-button:hover,
 .segmented-control button:hover,
 .workflow-tabs button:hover {
-  background: var(--surface-2);
+  background: var(--control-hover);
   border-color: var(--border-strong);
 }
 
@@ -250,7 +253,7 @@ select:focus-visible,
   gap: var(--space-3);
   padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border);
-  background: var(--bg-deep);
+  background: color-mix(in oklch, var(--bg-deep) 86%, var(--surface) 14%);
 }
 
 .segmented-control,
@@ -263,7 +266,8 @@ select:focus-visible,
 .segmented-control {
   padding: 0.18rem;
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--bg-deep);
+  border: 1px solid color-mix(in oklch, var(--border) 80%, var(--bg-deep) 20%);
 }
 
 .segmented-control button {
@@ -476,7 +480,7 @@ select:focus-visible,
   gap: var(--space-1);
   padding: var(--space-2);
   border-bottom: 1px solid var(--border);
-  background: var(--bg-deep);
+  background: color-mix(in oklch, var(--bg-deep) 86%, var(--surface) 14%);
 }
 
 .workflow-tabs button {
@@ -491,6 +495,8 @@ select:focus-visible,
 }
 
 .workflow-tabs button.active {
+  border-color: color-mix(in oklch, var(--accent) 84%, var(--border) 16%);
+  background: var(--control-active);
   color: var(--text);
 }
 
@@ -507,7 +513,7 @@ select:focus-visible,
 .reserved-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: color-mix(in oklch, var(--surface) 72%, var(--bg-deep) 28%);
 }
 
 .summary-section {
@@ -538,8 +544,9 @@ h2 {
   min-width: 3.5rem;
   justify-content: center;
   padding: 0.32rem 0.55rem;
-  border-radius: 999px;
-  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklch, var(--accent) 60%, var(--border) 40%);
+  border-radius: var(--radius-sm);
+  background: var(--control-active);
   color: var(--text);
   font-size: 0.78rem;
   font-weight: 700;
@@ -561,19 +568,21 @@ h2 {
   gap: var(--space-2);
   min-height: 3.8rem;
   padding: var(--space-2);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklch, var(--border) 84%, var(--bg-deep) 16%);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: color-mix(in oklch, var(--surface) 70%, var(--surface-2) 30%);
   cursor: pointer;
+  transition: background-color 160ms cubic-bezier(0.25, 1, 0.5, 1), border-color 160ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .field-row:hover {
+  background: var(--surface-2);
   border-color: var(--border-strong);
 }
 
 .field-row.selected {
   border-color: var(--accent);
-  background: oklch(0.255 0.055 292);
+  background: color-mix(in oklch, var(--control-active) 70%, var(--surface-2) 30%);
 }
 
 .drag-glyph {
@@ -586,7 +595,8 @@ h2 {
   height: 1.5rem;
   place-items: center;
   border-radius: var(--radius-sm);
-  background: var(--surface-3);
+  border: 1px solid color-mix(in oklch, var(--border) 80%, var(--surface-3) 20%);
+  background: var(--control);
   color: var(--text);
   font-size: 0.72rem;
   font-weight: 800;
@@ -680,9 +690,9 @@ h2 {
 .form-field select {
   width: 100%;
   min-height: 2.25rem;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklch, var(--border) 82%, var(--bg-deep) 18%);
   border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  background: var(--control);
   color: var(--text);
   padding: 0 var(--space-2);
 }
@@ -697,7 +707,7 @@ h2 {
   padding: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  background: var(--control);
   color: var(--muted);
   font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
@@ -777,10 +787,11 @@ h2 {
 .column-chip {
   min-width: 4rem;
   max-width: 9rem;
-  padding: 0.35rem 0.55rem;
-  border: 1px solid var(--border);
+  min-height: 1.65rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid color-mix(in oklch, var(--border) 82%, var(--bg-deep) 18%);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--control);
   color: var(--text);
   font-size: 0.78rem;
   overflow: hidden;
@@ -794,7 +805,7 @@ h2 {
 
 .column-chip.active {
   border-color: var(--orange);
-  background: var(--orange-soft);
+  background: color-mix(in oklch, var(--orange-soft) 82%, var(--surface) 18%);
 }
 
 .validation-summary {
