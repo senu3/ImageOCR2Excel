@@ -453,6 +453,12 @@ class ImageOcrExcelApp:
                 "include_filename": self.output_include_filename_var.get(),
                 "include_header": self.output_include_header_var.get(),
             },
+            template_name=path.stem,
+            sample_image_size=(
+                {"width": self.original_image.width, "height": self.original_image.height}
+                if self.original_image
+                else None
+            ),
         )
         write_template(path, data)
         self.template_path = path

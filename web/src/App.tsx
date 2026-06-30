@@ -19,6 +19,7 @@ import {
   ZoomOut
 } from "lucide-react";
 import { PointerEvent, useMemo, useRef, useState } from "react";
+import { buildTemplateDocument } from "./services/templateDocument";
 import { saveTemplateBridge } from "./services/tauriBridge";
 import { useTemplateEditor } from "./store/templateStore";
 import type { PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
@@ -101,9 +102,10 @@ export default function App() {
     dispatch({ type: "set-saving", saving: true });
     setStatus("テンプレートを保存しています...");
     try {
-      await saveTemplateBridge(state);
+      const savedTo = await saveTemplateBridge(buildTemplateDocument(state));
       await new Promise((resolve) => window.setTimeout(resolve, 360));
-      setStatus("テンプレートを保存しました。");
+      dispatch({ type: "mark-saved" });
+      setStatus(`テンプレートを保存しました: ${savedTo}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "テンプレート保存でエラーが発生しました。");
     } finally {

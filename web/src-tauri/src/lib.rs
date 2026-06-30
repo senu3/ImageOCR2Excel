@@ -17,10 +17,42 @@ fn open_sample_image() -> Result<String, String> {
 
 #[tauri::command]
 fn load_template() -> Result<String, String> {
-    Err("Template loading bridge is not connected yet.".into())
+    let path = std::env::current_dir()
+        .map_err(|error| error.to_string())?
+        .join("ocr-template.json");
+    std::fs::read_to_string(path).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn save_template(_template: String) -> Result<(), String> {
-    Err("Template saving bridge is not connected yet.".into())
+fn save_template(template: String) -> Result<String, String> {
+    let document: serde_json::Value =
+        serde_json::from_str(&template).map_err(|error| error.to_string())?;
+    let template_name = document
+        .get("template_name")
+        .and_then(|value| value.as_str())
+        .unwrap_or("ocr-template");
+    let file_name = format!("{}.json", safe_file_stem(template_name));
+    let path = std::env::current_dir()
+        .map_err(|error| error.to_string())?
+        .join(file_name);
+
+    std::fs::write(&path, template).map_err(|error| error.to_string())?;
+    Ok(path.display().to_string())
+}
+
+fn safe_file_stem(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|character| match character {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            character if character.is_whitespace() => '_',
+            character => character,
+        })
+        .collect();
+    let trimmed = sanitized.trim_matches(['.', ' ', '_', '-']).to_string();
+    if trimmed.is_empty() {
+        "ocr-template".into()
+    } else {
+        trimmed
+    }
 }

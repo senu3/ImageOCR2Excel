@@ -19,7 +19,8 @@ type Action =
   | { type: "delete-field"; fieldId: string }
   | { type: "move-field"; fieldId: string; direction: -1 | 1 }
   | { type: "set-postprocess"; fieldId: string; postprocess: PostprocessRule }
-  | { type: "set-saving"; saving: boolean };
+  | { type: "set-saving"; saving: boolean }
+  | { type: "mark-saved" };
 
 const initialState: TemplateEditorState = {
   sampleImage,
@@ -116,6 +117,8 @@ function reducer(state: TemplateEditorState, action: Action): TemplateEditorStat
       };
     case "set-saving":
       return { ...state, saving: action.saving };
+    case "mark-saved":
+      return { ...state, dirty: false };
     default:
       return state;
   }
