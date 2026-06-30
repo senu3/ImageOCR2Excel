@@ -228,15 +228,13 @@ select:focus-visible,
   display: grid;
   grid-template-columns: minmax(36rem, 1fr) 25rem;
   min-height: 0;
-  gap: var(--space-3);
-  padding: var(--space-3);
+  gap: 0;
+  padding: 0;
 }
 
 .workspace,
 .workflow-panel {
   min-height: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   background: var(--surface);
   overflow: hidden;
 }
@@ -483,6 +481,7 @@ select:focus-visible,
 .workflow-panel {
   display: grid;
   grid-template-rows: 3rem minmax(0, 1fr);
+  border-left: 1px solid var(--border);
   background: var(--surface-2);
 }
 
@@ -879,6 +878,8 @@ h2 {
   }
 
   .workflow-panel {
+    border-top: 1px solid var(--border);
+    border-left: 0;
     min-height: 32rem;
   }
 
