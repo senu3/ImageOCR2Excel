@@ -749,7 +749,9 @@ h2 {
 
 .bottom-status {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(20rem, 0.65fr);
+  grid-template-columns: minmax(18rem, 1fr) minmax(26rem, 0.85fr);
+  align-items: center;
+  column-gap: var(--space-4);
   min-height: 0;
   padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--border);
@@ -758,14 +760,17 @@ h2 {
 .column-preview,
 .validation-summary {
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
   min-width: 0;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
 .column-chips {
   display: flex;
+  align-items: center;
   min-width: 0;
-  gap: var(--space-2);
+  gap: var(--space-1);
   overflow: hidden;
 }
 
@@ -793,21 +798,39 @@ h2 {
 }
 
 .validation-summary {
-  align-content: start;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  justify-self: end;
+  width: 100%;
 }
 
 .validation-counts {
   display: flex;
-  gap: var(--space-2);
+  align-items: center;
+  gap: var(--space-1);
   color: var(--muted);
   font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.validation-counts span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.55rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
 }
 
 .validation-counts .bad {
+  border-color: oklch(0.45 0.09 25);
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
 .validation-counts .warn {
+  border-color: oklch(0.48 0.09 80);
+  background: oklch(0.285 0.06 80);
   color: var(--warning);
 }
 
@@ -851,6 +874,10 @@ h2 {
   .bottom-status {
     grid-template-columns: 1fr;
     gap: var(--space-2);
+  }
+
+  .validation-summary {
+    justify-self: stretch;
   }
 }
 
