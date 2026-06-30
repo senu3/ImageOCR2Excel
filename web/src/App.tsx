@@ -85,9 +85,12 @@ export default function App() {
   const image = state.sampleImage;
   const errorCount = validation.filter((issue) => issue.level === "error").length;
   const warningCount = validation.filter((issue) => issue.level === "warning").length;
-  const selectedStatus = selectedField
-    ? `選択中: #${selectedField.order} ${selectedField.name} / X ${selectedField.region.x} Y ${selectedField.region.y} W ${selectedField.region.width} H ${selectedField.region.height}`
-    : "項目未選択 / キャンバスまたはExcel列順から項目を選択できます。";
+  const imageStatus = [
+    `サンプル画像: ${image?.name ?? "未選択"}`,
+    `画像サイズ: ${image ? `${image.width} x ${image.height}` : "-"}`,
+    `項目数: ${sortedFields.filter((field) => field.enabled).length} / ${sortedFields.length}`,
+    `選択中: ${selectedField?.name ?? "-"}`
+  ].join("  |  ");
 
   const selectedIssues = useMemo(
     () => validation.filter((issue) => issue.fieldId && issue.fieldId === selectedField?.id),
@@ -284,14 +287,11 @@ export default function App() {
       </main>
 
       <BottomStatusPanel
-        fields={sortedFields}
-        selectedFieldId={selectedField?.id ?? null}
         validation={validation}
         status={status}
-        selectedStatus={selectedStatus}
+        imageStatus={imageStatus}
         errorCount={errorCount}
         warningCount={warningCount}
-        onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
       />
     </div>
   );
@@ -744,41 +744,23 @@ function ReservedPanel({ tab }: { tab: Exclude<WorkflowTab, "template"> }) {
 }
 
 function BottomStatusPanel({
-  fields,
-  selectedFieldId,
   validation,
   status,
-  selectedStatus,
+  imageStatus,
   errorCount,
   warningCount,
-  onSelect
 }: {
-  fields: TemplateField[];
-  selectedFieldId: string | null;
   validation: { id: string; level: "warning" | "error"; message: string }[];
   status: string;
-  selectedStatus: string;
+  imageStatus: string;
   errorCount: number;
   warningCount: number;
-  onSelect: (fieldId: string) => void;
 }) {
   return (
     <footer className="bottom-status">
-      <section className="column-preview" aria-label="Excel列順プレビュー">
-        <span className="footer-label">Excel列順</span>
-        <div className="column-chips">
-          <span className="column-chip fixed">画像ファイル</span>
-          {fields.filter((field) => field.enabled).map((field) => (
-            <button
-              key={field.id}
-              type="button"
-              className={`column-chip ${field.id === selectedFieldId ? "active" : ""}`}
-              onClick={() => onSelect(field.id)}
-            >
-              {field.name}
-            </button>
-          ))}
-        </div>
+      <section className="state-readout" aria-label="画像情報">
+        <span className="footer-label">画像情報</span>
+        <p aria-live="polite">{imageStatus}</p>
       </section>
       <section className="validation-summary" aria-label="検証">
         <span className="footer-label">検証</span>
@@ -786,7 +768,7 @@ function BottomStatusPanel({
           <span className={errorCount > 0 ? "bad" : ""}>エラー {errorCount}</span>
           <span className={warningCount > 0 ? "warn" : ""}>警告 {warningCount}</span>
         </div>
-        <p aria-live="polite">{validation[0]?.message ?? selectedStatus ?? status}</p>
+        <p aria-live="polite">{validation[0]?.message ?? status}</p>
       </section>
     </footer>
   );

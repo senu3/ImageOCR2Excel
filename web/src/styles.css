@@ -779,7 +779,7 @@ h2 {
   border-top: 1px solid var(--border);
 }
 
-.column-preview,
+.state-readout,
 .validation-summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -788,36 +788,14 @@ h2 {
   gap: var(--space-2);
 }
 
-.column-chips {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: var(--space-1);
-  overflow: hidden;
-}
-
-.column-chip {
-  min-width: 4rem;
-  max-width: 9rem;
-  min-height: 1.65rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid color-mix(in oklch, var(--border) 62%, var(--control) 38%);
-  border-radius: var(--radius-sm);
-  background: var(--control);
-  color: var(--text);
+.state-readout p {
+  margin: 0;
+  color: var(--muted);
   font-size: 0.78rem;
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.column-chip.fixed {
-  color: var(--muted);
-}
-
-.column-chip.active {
-  border-color: color-mix(in oklch, var(--orange) 38%, var(--orange-soft) 62%);
-  background: color-mix(in oklch, var(--orange-soft) 82%, var(--surface) 18%);
 }
 
 .validation-summary {
