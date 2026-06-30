@@ -85,6 +85,9 @@ export default function App() {
   const image = state.sampleImage;
   const errorCount = validation.filter((issue) => issue.level === "error").length;
   const warningCount = validation.filter((issue) => issue.level === "warning").length;
+  const selectedStatus = selectedField
+    ? `選択中: #${selectedField.order} ${selectedField.name} / X ${selectedField.region.x} Y ${selectedField.region.y} W ${selectedField.region.width} H ${selectedField.region.height}`
+    : "項目未選択 / キャンバスまたはExcel列順から項目を選択できます。";
 
   const selectedIssues = useMemo(
     () => validation.filter((issue) => issue.fieldId && issue.fieldId === selectedField?.id),
@@ -285,6 +288,7 @@ export default function App() {
         selectedFieldId={selectedField?.id ?? null}
         validation={validation}
         status={status}
+        selectedStatus={selectedStatus}
         errorCount={errorCount}
         warningCount={warningCount}
         onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
@@ -340,13 +344,6 @@ function TopToolbar({
       </div>
 
       <div className="toolbar-group toolbar-end">
-        <button className="icon-button" type="button" aria-label="前の画像">
-          <ChevronLeft size={18} />
-        </button>
-        <span className="image-count">1 / 12</span>
-        <button className="icon-button" type="button" aria-label="次の画像">
-          <ChevronRight size={18} />
-        </button>
         <button className="icon-button" type="button" aria-label="設定">
           <Settings size={18} />
         </button>
@@ -394,17 +391,28 @@ function CanvasToolbar({
           <Move size={16} />
         </button>
       </div>
-      <div className="zoom-controls">
-        <button className="icon-button" type="button" aria-label="縮小" onClick={() => onZoom(zoom - 0.1)}>
-          <ZoomOut size={16} />
-        </button>
-        <span>{Math.round(zoom * 100)}%</span>
-        <button className="icon-button" type="button" aria-label="拡大" onClick={() => onZoom(zoom + 0.1)}>
-          <ZoomIn size={16} />
-        </button>
-        <button className="icon-button" type="button" aria-label="全体表示" onClick={() => onZoom(0.82)}>
-          <Maximize size={16} />
-        </button>
+      <div className="canvas-toolbar-actions">
+        <div className="image-navigator" role="group" aria-label="画像選択">
+          <button className="icon-button" type="button" aria-label="前の画像">
+            <ChevronLeft size={18} />
+          </button>
+          <span className="image-count">1 / 12</span>
+          <button className="icon-button" type="button" aria-label="次の画像">
+            <ChevronRight size={18} />
+          </button>
+        </div>
+        <div className="zoom-controls">
+          <button className="icon-button" type="button" aria-label="縮小" onClick={() => onZoom(zoom - 0.1)}>
+            <ZoomOut size={16} />
+          </button>
+          <span>{Math.round(zoom * 100)}%</span>
+          <button className="icon-button" type="button" aria-label="拡大" onClick={() => onZoom(zoom + 0.1)}>
+            <ZoomIn size={16} />
+          </button>
+          <button className="icon-button" type="button" aria-label="全体表示" onClick={() => onZoom(0.82)}>
+            <Maximize size={16} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -740,6 +748,7 @@ function BottomStatusPanel({
   selectedFieldId,
   validation,
   status,
+  selectedStatus,
   errorCount,
   warningCount,
   onSelect
@@ -748,6 +757,7 @@ function BottomStatusPanel({
   selectedFieldId: string | null;
   validation: { id: string; level: "warning" | "error"; message: string }[];
   status: string;
+  selectedStatus: string;
   errorCount: number;
   warningCount: number;
   onSelect: (fieldId: string) => void;
@@ -776,7 +786,7 @@ function BottomStatusPanel({
           <span className={errorCount > 0 ? "bad" : ""}>エラー {errorCount}</span>
           <span className={warningCount > 0 ? "warn" : ""}>警告 {warningCount}</span>
         </div>
-        <p aria-live="polite">{validation[0]?.message ?? status}</p>
+        <p aria-live="polite">{validation[0]?.message ?? selectedStatus ?? status}</p>
       </section>
     </footer>
   );

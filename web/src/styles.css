@@ -257,10 +257,18 @@ select:focus-visible,
 }
 
 .segmented-control,
-.zoom-controls {
+.image-navigator,
+.zoom-controls,
+.canvas-toolbar-actions {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+}
+
+.canvas-toolbar-actions {
+  min-width: 0;
+  justify-content: flex-end;
+  gap: var(--space-3);
 }
 
 .segmented-control {
@@ -268,6 +276,10 @@ select:focus-visible,
   border-radius: var(--radius-sm);
   background: var(--bg-deep);
   border: 1px solid color-mix(in oklch, var(--border) 80%, var(--bg-deep) 20%);
+}
+
+.image-navigator {
+  min-width: 0;
 }
 
 .segmented-control button {
@@ -870,6 +882,16 @@ h2 {
   .toolbar-status {
     order: 3;
     flex-basis: 100%;
+  }
+
+  .canvas-toolbar {
+    flex-wrap: wrap;
+    min-height: 2.75rem;
+    padding-block: var(--space-1);
+  }
+
+  .canvas-toolbar-actions {
+    flex-wrap: wrap;
   }
 
   .main-workspace {
