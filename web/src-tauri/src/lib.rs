@@ -10,49 +10,133 @@ pub fn run() {
         .expect("error while running Image OCR to Excel");
 }
 
+use serde::Deserialize;
+use serde_json::{json, Value};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
 #[tauri::command]
 fn open_sample_image() -> Result<String, String> {
     Err("File selection bridge is not connected yet.".into())
 }
 
 #[tauri::command]
-fn load_template() -> Result<String, String> {
-    let path = std::env::current_dir()
-        .map_err(|error| error.to_string())?
-        .join("ocr-template.json");
-    std::fs::read_to_string(path).map_err(|error| error.to_string())
+fn load_template(path: Option<String>) -> Result<String, String> {
+    let payload = match path {
+        Some(path) => json!({ "path": path }),
+        None => json!({}),
+    };
+    let data = run_python_bridge("template_load", payload)?;
+    serde_json::to_string(&data).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn save_template(template: String) -> Result<String, String> {
-    let document: serde_json::Value =
-        serde_json::from_str(&template).map_err(|error| error.to_string())?;
-    let template_name = document
-        .get("template_name")
+fn save_template(draft: String) -> Result<String, String> {
+    let draft: Value = serde_json::from_str(&draft).map_err(|error| error.to_string())?;
+    let data = run_python_bridge("template_save", json!({ "draft": draft }))?;
+    data.get("path")
         .and_then(|value| value.as_str())
-        .unwrap_or("ocr-template");
-    let file_name = format!("{}.json", safe_file_stem(template_name));
-    let path = std::env::current_dir()
-        .map_err(|error| error.to_string())?
-        .join(file_name);
-
-    std::fs::write(&path, template).map_err(|error| error.to_string())?;
-    Ok(path.display().to_string())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| "Python ブリッジの保存結果に path がありません。".into())
 }
 
-fn safe_file_stem(value: &str) -> String {
-    let sanitized: String = value
-        .chars()
-        .map(|character| match character {
-            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
-            character if character.is_whitespace() => '_',
-            character => character,
-        })
-        .collect();
-    let trimmed = sanitized.trim_matches(['.', ' ', '_', '-']).to_string();
-    if trimmed.is_empty() {
-        "ocr-template".into()
-    } else {
-        trimmed
+#[derive(Deserialize)]
+struct BridgeResponse {
+    ok: bool,
+    data: Option<Value>,
+    error: Option<BridgeResponseError>,
+}
+
+#[derive(Deserialize)]
+struct BridgeResponseError {
+    code: String,
+    message: String,
+    #[allow(dead_code)]
+    details: Option<Value>,
+}
+
+fn run_python_bridge(command_name: &str, payload: Value) -> Result<Value, String> {
+    let project_root = find_project_root()?;
+    let script_path = project_root.join("bridge_cli.py");
+    let request = json!({ "payload": payload }).to_string();
+
+    for python in ["python", "py"] {
+        let mut child = match Command::new(python)
+            .arg(&script_path)
+            .arg(command_name)
+            .current_dir(&project_root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.to_string()),
+        };
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(request.as_bytes())
+                .map_err(|error| error.to_string())?;
+        }
+
+        let output = child.wait_with_output().map_err(|error| error.to_string())?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        match serde_json::from_str::<BridgeResponse>(&stdout) {
+            Ok(response) if response.ok => {
+                return response
+                    .data
+                    .ok_or_else(|| "Python ブリッジの応答に data がありません。".into());
+            }
+            Ok(response) => {
+                if let Some(error) = response.error {
+                    return Err(format!("{}: {}", error.code, error.message));
+                }
+                return Err("Python ブリッジがエラーを返しました。".into());
+            }
+            Err(error) => {
+                if !output.status.success() {
+                    return Err(format!(
+                        "Python ブリッジの実行に失敗しました: {}{}",
+                        error,
+                        if stderr.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", stderr.trim())
+                        }
+                    ));
+                }
+                return Err(format!("Python ブリッジの応答 JSON が不正です: {}", error));
+            }
+        }
     }
+
+    Err("Python が見つかりません。".into())
+}
+
+fn find_project_root() -> Result<PathBuf, String> {
+    let current_dir = std::env::current_dir().map_err(|error| error.to_string())?;
+    for candidate in current_dir.ancestors() {
+        if has_bridge_script(candidate) {
+            return Ok(candidate.to_path_buf());
+        }
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        for candidate in exe_path.ancestors() {
+            if has_bridge_script(candidate) {
+                return Ok(candidate.to_path_buf());
+            }
+        }
+    }
+
+    Err("bridge_cli.py が見つかりません。".into())
+}
+
+fn has_bridge_script(path: &Path) -> bool {
+    path.join("bridge_cli.py").is_file()
 }

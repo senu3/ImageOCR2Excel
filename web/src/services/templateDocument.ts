@@ -1,30 +1,29 @@
-import type { TemplateEditorState, TemplateField } from "../types";
+import type { ImageRef, PostprocessRule, TemplateEditorState, TemplateField } from "../types";
 
-const TEMPLATE_VERSION = 3;
-
-export type PersistedTemplateField = {
+export type TemplateDraftField = {
+  id: string;
   name: string;
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
   enabled: boolean;
-  source_width: number;
-  source_height: number;
+  order: number;
+  region: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  sourceSize: {
+    width: number;
+    height: number;
+  };
   postprocess: string;
-  replace_from: string;
-  replace_to: string;
-  remove_text: string;
 };
 
-export type PersistedTemplateDocument = {
-  format: "image-ocr-to-excel-template";
-  version: number;
+export type TemplateDraft = {
   template_name: string;
-  created_at: string;
   lang: string;
   tesseract_path: string;
   sample_image: string;
+  sample_image_name: string;
   sample_image_size: {
     width: number;
     height: number;
@@ -36,43 +35,39 @@ export type PersistedTemplateDocument = {
     include_filename: boolean;
     include_header: boolean;
   };
-  fields: PersistedTemplateField[];
+  fields: TemplateDraftField[];
 };
 
-function templateFieldToDocumentField(field: TemplateField): PersistedTemplateField {
-  const x1 = Math.min(field.region.x, field.region.x + field.region.width);
-  const y1 = Math.min(field.region.y, field.region.y + field.region.height);
-  const x2 = Math.max(field.region.x, field.region.x + field.region.width);
-  const y2 = Math.max(field.region.y, field.region.y + field.region.height);
+export type TemplateLoadData = {
+  path: string;
+  template: unknown;
+  draft: TemplateDraft;
+};
 
+const postprocessOptions: PostprocessRule[] = ["そのまま", "数字のみ", "数値抽出", "英数字のみ"];
+
+function templateFieldToDraftField(field: TemplateField): TemplateDraftField {
   return {
+    id: field.id,
     name: field.name,
-    x1,
-    y1,
-    x2,
-    y2,
     enabled: field.enabled,
-    source_width: field.sourceSize.width,
-    source_height: field.sourceSize.height,
-    postprocess: field.postprocess,
-    replace_from: "",
-    replace_to: "",
-    remove_text: ""
+    order: field.order,
+    region: field.region,
+    sourceSize: field.sourceSize,
+    postprocess: field.postprocess
   };
 }
 
-export function buildTemplateDocument(state: TemplateEditorState): PersistedTemplateDocument {
+export function buildTemplateDraft(state: TemplateEditorState): TemplateDraft {
   const sampleImage = state.sampleImage;
   const fields = [...state.fields].sort((a, b) => a.order - b.order);
 
   return {
-    format: "image-ocr-to-excel-template",
-    version: TEMPLATE_VERSION,
     template_name: sampleImage ? `${sampleImage.name.replace(/\.[^.]+$/, "")}_template` : "ocr-template",
-    created_at: new Date().toISOString(),
     lang: "jpn+eng",
     tesseract_path: "",
     sample_image: sampleImage?.name ?? "",
+    sample_image_name: sampleImage?.name ?? "",
     sample_image_size: sampleImage
       ? {
           width: sampleImage.width,
@@ -86,18 +81,63 @@ export function buildTemplateDocument(state: TemplateEditorState): PersistedTemp
       include_filename: true,
       include_header: true
     },
-    fields: fields.map(templateFieldToDocumentField)
+    fields: fields.map(templateFieldToDraftField)
   };
 }
 
-export function templateDocumentToJson(document: PersistedTemplateDocument): string {
-  return `${JSON.stringify(document, null, 2)}\n`;
+export function templateDraftToJson(draft: TemplateDraft): string {
+  return `${JSON.stringify(draft, null, 2)}\n`;
 }
 
-export function templateFileName(document: PersistedTemplateDocument): string {
-  const safeName = document.template_name
+export function templateFileName(draft: TemplateDraft): string {
+  const safeName = draft.template_name
     .trim()
     .replace(/[\\/:*?"<>|]+/g, "-")
     .replace(/\s+/g, "_");
   return `${safeName || "ocr-template"}.json`;
+}
+
+function fileNameFromPath(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+function postprocessFromDraft(value: string): PostprocessRule {
+  return postprocessOptions.includes(value as PostprocessRule) ? (value as PostprocessRule) : "そのまま";
+}
+
+export function parseTemplateLoadData(raw: string): TemplateLoadData {
+  const data = JSON.parse(raw) as TemplateLoadData;
+  if (!data || typeof data !== "object" || !data.draft) {
+    throw new Error("テンプレート読込結果の形式が不正です。");
+  }
+  return data;
+}
+
+export function templateDraftToEditorData(draft: TemplateDraft): {
+  sampleImage: ImageRef | null;
+  fields: TemplateField[];
+} {
+  const sampleImage =
+    draft.sample_image_size && draft.sample_image
+      ? {
+          id: "loaded-sample-image",
+          name: draft.sample_image_name || fileNameFromPath(draft.sample_image),
+          width: draft.sample_image_size.width,
+          height: draft.sample_image_size.height
+        }
+      : null;
+
+  const fields = [...draft.fields]
+    .sort((a, b) => a.order - b.order)
+    .map((field, index) => ({
+      id: field.id || `field-${index + 1}`,
+      name: field.name,
+      enabled: field.enabled,
+      order: index + 1,
+      region: field.region,
+      sourceSize: field.sourceSize,
+      postprocess: postprocessFromDraft(field.postprocess)
+    }));
+
+  return { sampleImage, fields };
 }

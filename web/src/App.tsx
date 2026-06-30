@@ -19,8 +19,8 @@ import {
   ZoomOut
 } from "lucide-react";
 import { PointerEvent, useMemo, useRef, useState } from "react";
-import { buildTemplateDocument } from "./services/templateDocument";
-import { saveTemplateBridge } from "./services/tauriBridge";
+import { buildTemplateDraft, parseTemplateLoadData, templateDraftToEditorData } from "./services/templateDocument";
+import { loadTemplateBridge, saveTemplateBridge } from "./services/tauriBridge";
 import { useTemplateEditor } from "./store/templateStore";
 import type { PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
 
@@ -102,7 +102,7 @@ export default function App() {
     dispatch({ type: "set-saving", saving: true });
     setStatus("テンプレートを保存しています...");
     try {
-      const savedTo = await saveTemplateBridge(buildTemplateDocument(state));
+      const savedTo = await saveTemplateBridge(buildTemplateDraft(state));
       await new Promise((resolve) => window.setTimeout(resolve, 360));
       dispatch({ type: "mark-saved" });
       setStatus(`テンプレートを保存しました: ${savedTo}`);
@@ -110,6 +110,23 @@ export default function App() {
       setStatus(error instanceof Error ? error.message : "テンプレート保存でエラーが発生しました。");
     } finally {
       dispatch({ type: "set-saving", saving: false });
+    }
+  }
+
+  async function loadTemplate() {
+    setStatus("テンプレートを読み込んでいます...");
+    try {
+      const raw = await loadTemplateBridge();
+      if (!raw) {
+        setStatus("テンプレート読込は Tauri アプリで利用できます。");
+        return;
+      }
+      const loaded = parseTemplateLoadData(raw);
+      const editorData = templateDraftToEditorData(loaded.draft);
+      dispatch({ type: "load-template", ...editorData });
+      setStatus(`テンプレートを読み込みました: ${loaded.path}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "テンプレート読込でエラーが発生しました。");
     }
   }
 
@@ -213,6 +230,7 @@ export default function App() {
         dirty={state.dirty}
         saving={state.saving}
         status={status}
+        onLoad={loadTemplate}
         onSave={saveTemplate}
       />
 
@@ -303,11 +321,13 @@ function TopToolbar({
   dirty,
   saving,
   status,
+  onLoad,
   onSave
 }: {
   dirty: boolean;
   saving: boolean;
   status: string;
+  onLoad: () => void;
   onSave: () => void;
 }) {
   return (
@@ -331,7 +351,7 @@ function TopToolbar({
           <FolderOpen size={16} />
           画像フォルダ
         </button>
-        <button className="tool-button" type="button">
+        <button className="tool-button" type="button" onClick={onLoad}>
           <ChevronDown size={16} />
           読込
         </button>

@@ -2,6 +2,7 @@ import { useMemo, useReducer } from "react";
 import { initialFields, sampleImage } from "../data/sample";
 import type {
   CanvasTool,
+  ImageRef,
   PostprocessRule,
   Region,
   TemplateEditorState,
@@ -20,7 +21,8 @@ type Action =
   | { type: "move-field"; fieldId: string; direction: -1 | 1 }
   | { type: "set-postprocess"; fieldId: string; postprocess: PostprocessRule }
   | { type: "set-saving"; saving: boolean }
-  | { type: "mark-saved" };
+  | { type: "mark-saved" }
+  | { type: "load-template"; sampleImage: ImageRef | null; fields: TemplateField[] };
 
 const initialState: TemplateEditorState = {
   sampleImage,
@@ -119,6 +121,15 @@ function reducer(state: TemplateEditorState, action: Action): TemplateEditorStat
       return { ...state, saving: action.saving };
     case "mark-saved":
       return { ...state, dirty: false };
+    case "load-template":
+      return {
+        ...state,
+        sampleImage: action.sampleImage,
+        fields: action.fields,
+        selectedFieldId: action.fields[0]?.id ?? null,
+        dirty: false,
+        saving: false
+      };
     default:
       return state;
   }

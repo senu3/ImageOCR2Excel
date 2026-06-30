@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
-  templateDocumentToJson,
+  templateDraftToJson,
   templateFileName,
-  type PersistedTemplateDocument
+  type TemplateDraft
 } from "./templateDocument";
 
 const hasTauri = "__TAURI_INTERNALS__" in window;
@@ -17,21 +17,21 @@ export async function loadTemplateBridge(): Promise<string | null> {
   return invoke<string>("load_template");
 }
 
-function downloadTemplate(document: PersistedTemplateDocument) {
-  const blob = new Blob([templateDocumentToJson(document)], { type: "application/json" });
+function downloadTemplate(draft: TemplateDraft) {
+  const blob = new Blob([templateDraftToJson(draft)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = window.document.createElement("a");
   anchor.href = url;
-  anchor.download = templateFileName(document);
+  anchor.download = templateFileName(draft);
   anchor.click();
   URL.revokeObjectURL(url);
 }
 
-export async function saveTemplateBridge(document: PersistedTemplateDocument): Promise<string> {
+export async function saveTemplateBridge(draft: TemplateDraft): Promise<string> {
   if (!hasTauri) {
-    downloadTemplate(document);
-    return templateFileName(document);
+    downloadTemplate(draft);
+    return templateFileName(draft);
   }
 
-  return invoke<string>("save_template", { template: templateDocumentToJson(document) });
+  return invoke<string>("save_template", { draft: templateDraftToJson(draft) });
 }
