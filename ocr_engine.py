@@ -95,6 +95,35 @@ def apply_postprocess(text: str, field: TemplateField) -> str:
 
 
 class OcrEngine:
+    def recognize_field_detail(
+        self,
+        image: Image.Image,
+        field: TemplateField,
+        lang: str = DEFAULT_LANG,
+        tesseract_path: str = "",
+    ) -> tuple[str | None, str | None, str | None]:
+        if pytesseract is None:
+            return None, None, "OCRライブラリ pytesseract がインストールされていません。"
+
+        if tesseract_path:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_path
+
+        region = scaled_field(field, image)
+        if (region.x2 - region.x1) < 1 or (region.y2 - region.y1) < 1:
+            return None, None, "読み取り範囲が画像外、または小さすぎます。"
+
+        crop = image.crop((region.x1, region.y1, region.x2, region.y2))
+        prepared = prepare_for_ocr(crop)
+        try:
+            raw_text = pytesseract.image_to_string(prepared, lang=lang.strip() or DEFAULT_LANG, config="--oem 3 --psm 6")
+        except pytesseract.TesseractNotFoundError:
+            return None, None, "Tesseractが見つかりません。設定で実行ファイルのパスを指定してください。"
+        except pytesseract.TesseractError as exc:
+            return None, None, str(exc)
+
+        cleaned = clean_text(raw_text)
+        return cleaned, apply_postprocess(cleaned, field), None
+
     def recognize_field(
         self,
         image: Image.Image,
@@ -102,22 +131,5 @@ class OcrEngine:
         lang: str = DEFAULT_LANG,
         tesseract_path: str = "",
     ) -> tuple[str | None, str | None]:
-        if pytesseract is None:
-            return None, "OCRライブラリ pytesseract がインストールされていません。"
-
-        if tesseract_path:
-            pytesseract.pytesseract.tesseract_cmd = tesseract_path
-
-        region = scaled_field(field, image)
-        if (region.x2 - region.x1) < 1 or (region.y2 - region.y1) < 1:
-            return None, "読み取り範囲が画像外、または小さすぎます。"
-
-        crop = image.crop((region.x1, region.y1, region.x2, region.y2))
-        prepared = prepare_for_ocr(crop)
-        try:
-            text = pytesseract.image_to_string(prepared, lang=lang.strip() or DEFAULT_LANG, config="--oem 3 --psm 6")
-        except pytesseract.TesseractNotFoundError:
-            return None, "Tesseractが見つかりません。設定で実行ファイルのパスを指定してください。"
-        except pytesseract.TesseractError as exc:
-            return None, str(exc)
-        return apply_postprocess(clean_text(text), field), None
+        _raw_text, value, error = self.recognize_field_detail(image, field, lang, tesseract_path)
+        return value, error

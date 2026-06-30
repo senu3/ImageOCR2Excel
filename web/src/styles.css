@@ -325,6 +325,18 @@ select:focus-visible,
   pointer-events: none;
 }
 
+.sample-image {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  transform-origin: top left;
+  user-select: none;
+  pointer-events: none;
+}
+
 .doc-header {
   display: flex;
   justify-content: space-between;
@@ -511,12 +523,17 @@ select:focus-visible,
   color: var(--text);
 }
 
-.template-panel {
+.template-panel,
+.review-panel {
   display: grid;
   grid-template-rows: auto minmax(10rem, 1fr) auto;
   min-height: 0;
   gap: var(--space-3);
   padding: var(--space-3);
+}
+
+.review-panel {
+  grid-template-rows: auto auto minmax(10rem, 1fr);
 }
 
 .panel-section,
@@ -570,6 +587,88 @@ h2 {
   gap: var(--space-2);
   overflow: auto;
   padding-right: 0.12rem;
+}
+
+.review-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.review-actions .tool-button {
+  justify-content: center;
+}
+
+.review-list {
+  display: grid;
+  align-content: start;
+  min-height: 0;
+  gap: var(--space-2);
+  overflow: auto;
+  padding-right: 0.12rem;
+}
+
+.review-row {
+  display: grid;
+  width: 100%;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in oklch, var(--border) 68%, var(--surface) 32%);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 70%, var(--surface-2) 30%);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.review-row:hover {
+  background: var(--surface-2);
+  border-color: color-mix(in oklch, var(--border-strong) 70%, var(--surface-2) 30%);
+}
+
+.review-row.selected {
+  border-color: color-mix(in oklch, var(--accent) 42%, var(--control-active) 58%);
+  background: color-mix(in oklch, var(--control-active) 70%, var(--surface-2) 30%);
+}
+
+.review-row-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.review-row-title strong,
+.review-row-title span,
+.review-value,
+.review-error,
+.review-raw,
+.review-empty {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-row-title strong {
+  font-size: 0.88rem;
+}
+
+.review-row-title span,
+.review-raw,
+.review-empty {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.review-value {
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.review-error {
+  color: var(--danger);
+  font-size: 0.8rem;
 }
 
 .field-row {

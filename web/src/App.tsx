@@ -12,6 +12,7 @@ import {
   Move,
   PanelRight,
   Plus,
+  RefreshCw,
   Save,
   Settings,
   Trash2,
@@ -20,9 +21,15 @@ import {
 } from "lucide-react";
 import { PointerEvent, useMemo, useRef, useState } from "react";
 import { buildTemplateDraft, parseTemplateLoadData, templateDraftToEditorData } from "./services/templateDocument";
-import { loadTemplateBridge, saveTemplateBridge } from "./services/tauriBridge";
+import {
+  imageUrlFromPath,
+  loadTemplateBridge,
+  ocrPreviewBridge,
+  openSampleImage,
+  saveTemplateBridge
+} from "./services/tauriBridge";
 import { useTemplateEditor } from "./store/templateStore";
-import type { PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
+import type { OcrPreviewResult, PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
 
 type DragMode =
   | { kind: "create"; origin: { x: number; y: number }; draft: Region }
@@ -81,6 +88,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<WorkflowTab>("template");
   const [status, setStatus] = useState("サンプル画像上で読み取りたい範囲をドラッグしてください。");
   const [drag, setDrag] = useState<DragMode>(null);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrResults, setOcrResults] = useState<OcrPreviewResult[]>([]);
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
   const image = state.sampleImage;
@@ -97,6 +106,22 @@ export default function App() {
     () => validation.filter((issue) => issue.fieldId && issue.fieldId === selectedField?.id),
     [selectedField?.id, validation]
   );
+
+  async function openSample() {
+    setStatus("サンプル画像を開いています...");
+    try {
+      const sample = await openSampleImage();
+      if (!sample) {
+        setStatus("サンプル画像の選択をキャンセルしました。");
+        return;
+      }
+      dispatch({ type: "set-sample-image", sampleImage: sample });
+      setOcrResults([]);
+      setStatus(`サンプル画像を開きました: ${sample.name}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "サンプル画像の読込でエラーが発生しました。");
+    }
+  }
 
   async function saveTemplate() {
     dispatch({ type: "set-saving", saving: true });
@@ -127,10 +152,49 @@ export default function App() {
       }
       const loaded = parseTemplateLoadData(raw);
       const editorData = templateDraftToEditorData(loaded.draft);
-      dispatch({ type: "load-template", ...editorData });
+      const sampleImage = editorData.sampleImage
+        ? { ...editorData.sampleImage, url: imageUrlFromPath(editorData.sampleImage.path) }
+        : null;
+      dispatch({ type: "load-template", ...editorData, sampleImage });
+      setOcrResults([]);
       setStatus(`テンプレートを読み込みました: ${loaded.path}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "テンプレート読込でエラーが発生しました。");
+    }
+  }
+
+  async function runOcrPreview(scope: "selected" | "all") {
+    if (!image?.path) {
+      setStatus("OCR Preview には実画像のパスが必要です。サンプル画像を開いてください。");
+      return;
+    }
+    if (scope === "selected" && !selectedField) {
+      setStatus("OCR Preview する項目を選択してください。");
+      return;
+    }
+    const fieldIds = scope === "selected" && selectedField ? [selectedField.id] : undefined;
+    setOcrBusy(true);
+    setActiveTab("review");
+    setStatus(scope === "selected" ? "選択項目をOCRしています..." : "現在の画像をOCRしています...");
+    try {
+      const results = await ocrPreviewBridge(image.path, buildTemplateDraft(state), fieldIds);
+      setOcrResults((current) => {
+        const next = new Map(current.map((result) => [result.fieldId, result]));
+        for (const result of results) {
+          next.set(result.fieldId, result);
+        }
+        return Array.from(next.values());
+      });
+      const errorCount = results.filter((result) => result.error).length;
+      setStatus(
+        errorCount > 0
+          ? `OCR Preview が完了しました（エラー ${errorCount} 件）。`
+          : `OCR Preview が完了しました: ${results.length} 項目`
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "OCR Preview でエラーが発生しました。");
+    } finally {
+      setOcrBusy(false);
     }
   }
 
@@ -234,6 +298,7 @@ export default function App() {
         dirty={state.dirty}
         saving={state.saving}
         status={status}
+        onOpenSample={openSample}
         onLoad={loadTemplate}
         onSave={saveTemplate}
       />
@@ -259,7 +324,7 @@ export default function App() {
               onPointerUp={finishDrag}
             >
               {image ? (
-                <SampleDocument zoom={state.canvas.zoom} />
+                <SampleDocument image={image} zoom={state.canvas.zoom} />
               ) : (
                 <div className="canvas-empty">
                   <FileImage size={30} />
@@ -304,6 +369,16 @@ export default function App() {
               }
               onDelete={(fieldId) => dispatch({ type: "delete-field", fieldId })}
             />
+          ) : activeTab === "review" ? (
+            <ReviewPanel
+              busy={ocrBusy}
+              fields={sortedFields}
+              results={ocrResults}
+              selectedField={selectedField}
+              onRunAll={() => runOcrPreview("all")}
+              onRunSelected={() => runOcrPreview("selected")}
+              onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
+            />
           ) : (
             <ReservedPanel tab={activeTab} />
           )}
@@ -325,12 +400,14 @@ function TopToolbar({
   dirty,
   saving,
   status,
+  onOpenSample,
   onLoad,
   onSave
 }: {
   dirty: boolean;
   saving: boolean;
   status: string;
+  onOpenSample: () => void;
   onLoad: () => void;
   onSave: () => void;
 }) {
@@ -347,7 +424,7 @@ function TopToolbar({
       </div>
 
       <nav className="toolbar-group" aria-label="ファイル操作">
-        <button className="tool-button primary" type="button">
+        <button className="tool-button primary" type="button" onClick={onOpenSample}>
           <FileImage size={16} />
           サンプル画像
         </button>
@@ -444,7 +521,19 @@ function CanvasToolbar({
   );
 }
 
-function SampleDocument({ zoom }: { zoom: number }) {
+function SampleDocument({ image, zoom }: { image: { name: string; url?: string }; zoom: number }) {
+  if (image.url) {
+    return (
+      <img
+        className="sample-image"
+        src={image.url}
+        alt={image.name}
+        style={{ transform: `scale(${zoom})` }}
+        draggable={false}
+      />
+    );
+  }
+
   return (
     <div className="sample-document" style={{ transform: `scale(${zoom})` }} aria-label="サンプル画像">
       <div className="doc-header">
@@ -746,6 +835,89 @@ function SelectedFieldInspector({
         </div>
       )}
     </section>
+  );
+}
+
+function ReviewPanel({
+  busy,
+  fields,
+  results,
+  selectedField,
+  onRunAll,
+  onRunSelected,
+  onSelect
+}: {
+  busy: boolean;
+  fields: TemplateField[];
+  results: OcrPreviewResult[];
+  selectedField: TemplateField | null;
+  onRunAll: () => void;
+  onRunSelected: () => void;
+  onSelect: (fieldId: string) => void;
+}) {
+  const resultsByField = new Map(results.map((result) => [result.fieldId, result]));
+  const enabledFields = fields.filter((field) => field.enabled);
+
+  return (
+    <div className="review-panel">
+      <section className="panel-section summary-section">
+        <div>
+          <span className="section-label">Review</span>
+          <h2>OCR Preview</h2>
+        </div>
+        <span className="count-pill">{results.length} / {enabledFields.length}</span>
+      </section>
+
+      <section className="review-actions" aria-label="OCR Preview 操作">
+        <button className="tool-button primary" type="button" onClick={onRunSelected} disabled={busy || !selectedField}>
+          <RefreshCw size={16} />
+          選択項目をOCR
+        </button>
+        <button className="tool-button" type="button" onClick={onRunAll} disabled={busy || enabledFields.length === 0}>
+          <RefreshCw size={16} />
+          全項目をOCR
+        </button>
+      </section>
+
+      <section className="review-list" aria-label="OCR Preview 結果">
+        {enabledFields.length === 0 ? (
+          <div className="empty-block">
+            <PanelRight size={22} />
+            <strong>有効な項目がありません</strong>
+            <span>Templateで読み取り項目を有効にしてください。</span>
+          </div>
+        ) : (
+          enabledFields.map((field) => {
+            const result = resultsByField.get(field.id);
+            return (
+              <button
+                className={`review-row ${field.id === selectedField?.id ? "selected" : ""}`}
+                type="button"
+                key={field.id}
+                onClick={() => onSelect(field.id)}
+              >
+                <span className="review-row-title">
+                  <strong>{field.name}</strong>
+                  <span>{result ? (result.error ? "エラー" : "完了") : "未実行"}</span>
+                </span>
+                {result ? (
+                  <>
+                    <span className={result.error ? "review-error" : "review-value"}>
+                      {result.error || result.value || "空の結果"}
+                    </span>
+                    {result.rawText && result.rawText !== result.value && (
+                      <span className="review-raw">raw: {result.rawText}</span>
+                    )}
+                  </>
+                ) : (
+                  <span className="review-empty">OCR Preview を実行してください。</span>
+                )}
+              </button>
+            );
+          })
+        )}
+      </section>
+    </div>
   );
 }
 

@@ -14,6 +14,7 @@ type Action =
   | { type: "select-field"; fieldId: string | null }
   | { type: "set-tool"; tool: CanvasTool }
   | { type: "set-zoom"; zoom: number }
+  | { type: "set-sample-image"; sampleImage: ImageRef }
   | { type: "update-field"; fieldId: string; patch: Partial<TemplateField> }
   | { type: "update-region"; fieldId: string; region: Region }
   | { type: "create-field"; region: Region }
@@ -52,6 +53,12 @@ function reducer(state: TemplateEditorState, action: Action): TemplateEditorStat
       return {
         ...state,
         canvas: { ...state.canvas, zoom: Math.min(2.4, Math.max(0.32, action.zoom)) }
+      };
+    case "set-sample-image":
+      return {
+        ...state,
+        dirty: true,
+        sampleImage: action.sampleImage
       };
     case "update-field":
       return {

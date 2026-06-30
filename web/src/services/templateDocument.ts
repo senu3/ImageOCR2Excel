@@ -66,7 +66,7 @@ export function buildTemplateDraft(state: TemplateEditorState): TemplateDraft {
     template_name: sampleImage ? `${sampleImage.name.replace(/\.[^.]+$/, "")}_template` : "ocr-template",
     lang: "jpn+eng",
     tesseract_path: "",
-    sample_image: sampleImage?.name ?? "",
+    sample_image: sampleImage?.path ?? sampleImage?.name ?? "",
     sample_image_name: sampleImage?.name ?? "",
     sample_image_size: sampleImage
       ? {
@@ -123,7 +123,8 @@ export function templateDraftToEditorData(draft: TemplateDraft): {
           id: "loaded-sample-image",
           name: draft.sample_image_name || fileNameFromPath(draft.sample_image),
           width: draft.sample_image_size.width,
-          height: draft.sample_image_size.height
+          height: draft.sample_image_size.height,
+          path: draft.sample_image
         }
       : null;
 

@@ -4,6 +4,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             open_sample_image,
+            ocr_preview,
             load_template,
             save_template
         ])
@@ -20,8 +21,35 @@ use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
-fn open_sample_image() -> Result<String, String> {
-    Err("File selection bridge is not connected yet.".into())
+fn open_sample_image(app: AppHandle) -> Result<Option<String>, String> {
+    let path = match app
+        .dialog()
+        .file()
+        .add_filter("Image", &["png", "jpg", "jpeg", "bmp", "tif", "tiff"])
+        .blocking_pick_file()
+    {
+        Some(path) => path.into_path().map_err(|error| error.to_string())?,
+        None => return Ok(None),
+    };
+
+    let data = run_python_bridge("image_open", json!({ "path": path.display().to_string() }))?;
+    serde_json::to_string(&data)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn ocr_preview(
+    image_path: String,
+    draft: String,
+    field_ids: Option<Vec<String>>,
+) -> Result<String, String> {
+    let draft: Value = serde_json::from_str(&draft).map_err(|error| error.to_string())?;
+    let data = run_python_bridge(
+        "ocr_preview",
+        json!({ "image_path": image_path, "draft": draft, "field_ids": field_ids }),
+    )?;
+    serde_json::to_string(&data).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -113,16 +141,24 @@ fn run_python_bridge(command_name: &str, payload: Value) -> Result<Value, String
     let script_path = project_root.join("bridge_cli.py");
     let request = json!({ "payload": payload }).to_string();
 
-    for python in ["python", "py"] {
-        let mut child = match Command::new(python)
+    let candidates: [(&str, &[&str]); 3] = [
+        ("uv", &["run", "python"]),
+        ("python", &[]),
+        ("py", &[]),
+    ];
+
+    for (program, prefix_args) in candidates {
+        let mut command = Command::new(program);
+        command
+            .args(prefix_args)
             .arg(&script_path)
             .arg(command_name)
             .current_dir(&project_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
+            .stderr(Stdio::piped());
+
+        let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(error.to_string()),

@@ -21,7 +21,17 @@ export type ImageRef = {
   name: string;
   width: number;
   height: number;
+  path?: string;
   url?: string;
+};
+
+export type OcrPreviewResult = {
+  fieldId: string;
+  name: string;
+  rawText: string;
+  value: string;
+  error?: string | null;
+  warnings: string[];
 };
 
 export type TemplateField = {

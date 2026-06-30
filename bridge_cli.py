@@ -164,7 +164,105 @@ def template_load(payload: dict[str, Any]) -> dict[str, Any]:
     return {"path": str(path), "template": data, "draft": _template_to_draft(data)}
 
 
+def image_open(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from PIL import Image
+    except ImportError as error:
+        raise BridgeError("image.unsupported_format", "画像処理ライブラリ Pillow がインストールされていません。") from error
+
+    path_value = payload.get("path")
+    if not path_value:
+        raise BridgeError("file.not_found", "画像ファイルが指定されていません。")
+
+    path = Path(str(path_value))
+    if not path.exists():
+        raise BridgeError("file.not_found", "画像ファイルが見つかりません。", {"path": str(path)})
+
+    try:
+        with Image.open(path) as image:
+            width, height = image.size
+    except Exception as error:
+        raise BridgeError("image.unsupported_format", "画像ファイルを開けませんでした。", {"path": str(path), "error": str(error)}) from error
+
+    return {
+        "path": str(path),
+        "name": path.name,
+        "width": width,
+        "height": height,
+    }
+
+
+def ocr_preview(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from PIL import Image
+    except ImportError as error:
+        raise BridgeError("image.unsupported_format", "画像処理ライブラリ Pillow がインストールされていません。") from error
+
+    from ocr_engine import DEFAULT_LANG, OcrEngine, detect_tesseract
+
+    image_path_value = payload.get("image_path")
+    if not image_path_value:
+        raise BridgeError("file.not_found", "OCR対象の画像が指定されていません。")
+
+    image_path = Path(str(image_path_value))
+    if not image_path.exists():
+        raise BridgeError("file.not_found", "OCR対象の画像が見つかりません。", {"path": str(image_path)})
+
+    draft = payload.get("draft")
+    template = payload.get("template")
+    source = draft if isinstance(draft, dict) else template if isinstance(template, dict) else None
+    if source is None:
+        raise BridgeError("template.invalid_format", "OCR対象のテンプレートデータが不正です。")
+
+    raw_fields = source.get("fields") or []
+    if not isinstance(raw_fields, list):
+        raise BridgeError("template.invalid_format", "テンプレート項目の形式が不正です。")
+
+    requested_ids = payload.get("field_ids")
+    field_ids = {str(field_id) for field_id in requested_ids} if isinstance(requested_ids, list) else set()
+    fields: list[tuple[str, TemplateField]] = []
+    for index, item in enumerate(raw_fields):
+        if not isinstance(item, dict):
+            continue
+        field_id = str(item.get("id") or f"field-{index + 1}")
+        if field_ids and field_id not in field_ids:
+            continue
+        field = _field_from_draft(item)
+        if not field.enabled and not field_ids:
+            continue
+        fields.append((field_id, field))
+
+    if not fields:
+        raise BridgeError("template.invalid_field", "OCR対象の項目がありません。")
+
+    try:
+        image = Image.open(image_path).convert("RGB")
+    except Exception as error:
+        raise BridgeError("image.unsupported_format", "OCR対象の画像を開けませんでした。", {"path": str(image_path), "error": str(error)}) from error
+
+    lang = str(source.get("lang") or DEFAULT_LANG)
+    tesseract_path = str(source.get("tesseract_path") or "") or detect_tesseract()
+    engine = OcrEngine()
+    results = []
+    for field_id, field in fields:
+        raw_text, value, error = engine.recognize_field_detail(image, field, lang, tesseract_path)
+        results.append(
+            {
+                "field_id": field_id,
+                "name": field.name,
+                "raw_text": raw_text or "",
+                "value": value or "",
+                "error": error,
+                "warnings": [],
+            }
+        )
+
+    return {"image_path": str(image_path), "results": results}
+
+
 COMMANDS = {
+    "image_open": image_open,
+    "ocr_preview": ocr_preview,
     "template_save": template_save,
     "template_load": template_load,
 }
