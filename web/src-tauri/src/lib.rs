@@ -1,6 +1,7 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             open_sample_image,
             load_template,
@@ -15,6 +16,8 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tauri::AppHandle;
+use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
 fn open_sample_image() -> Result<String, String> {
@@ -22,23 +25,72 @@ fn open_sample_image() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn load_template(path: Option<String>) -> Result<String, String> {
-    let payload = match path {
-        Some(path) => json!({ "path": path }),
-        None => json!({}),
+fn load_template(app: AppHandle, path: Option<String>) -> Result<Option<String>, String> {
+    let path = match path {
+        Some(path) => PathBuf::from(path),
+        None => match app
+            .dialog()
+            .file()
+            .add_filter("Template JSON", &["json"])
+            .blocking_pick_file()
+        {
+            Some(path) => path.into_path().map_err(|error| error.to_string())?,
+            None => return Ok(None),
+        },
     };
+
+    let payload = json!({ "path": path.display().to_string() });
     let data = run_python_bridge("template_load", payload)?;
-    serde_json::to_string(&data).map_err(|error| error.to_string())
+    serde_json::to_string(&data)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn save_template(draft: String) -> Result<String, String> {
+fn save_template(app: AppHandle, draft: String) -> Result<Option<String>, String> {
     let draft: Value = serde_json::from_str(&draft).map_err(|error| error.to_string())?;
-    let data = run_python_bridge("template_save", json!({ "draft": draft }))?;
+    let template_name = draft
+        .get("template_name")
+        .and_then(|value| value.as_str())
+        .unwrap_or("ocr-template");
+    let default_file_name = format!("{}.json", safe_file_stem(template_name));
+    let save_path = match app
+        .dialog()
+        .file()
+        .add_filter("Template JSON", &["json"])
+        .set_file_name(&default_file_name)
+        .blocking_save_file()
+    {
+        Some(path) => path.into_path().map_err(|error| error.to_string())?,
+        None => return Ok(None),
+    };
+
+    let data = run_python_bridge(
+        "template_save",
+        json!({ "draft": draft, "save_path": save_path.display().to_string() }),
+    )?;
     data.get("path")
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned)
+        .map(Some)
         .ok_or_else(|| "Python ブリッジの保存結果に path がありません。".into())
+}
+
+fn safe_file_stem(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|character| match character {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            character if character.is_whitespace() => '_',
+            character => character,
+        })
+        .collect();
+    let trimmed = sanitized.trim_matches(['.', ' ', '_', '-']).to_string();
+    if trimmed.is_empty() {
+        "ocr-template".into()
+    } else {
+        trimmed
+    }
 }
 
 #[derive(Deserialize)]

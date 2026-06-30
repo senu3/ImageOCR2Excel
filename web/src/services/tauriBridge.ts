@@ -14,7 +14,7 @@ export async function openSampleImageBridge(): Promise<string | null> {
 
 export async function loadTemplateBridge(): Promise<string | null> {
   if (!hasTauri) return null;
-  return invoke<string>("load_template");
+  return invoke<string | null>("load_template", { path: null });
 }
 
 function downloadTemplate(draft: TemplateDraft) {
@@ -27,11 +27,11 @@ function downloadTemplate(draft: TemplateDraft) {
   URL.revokeObjectURL(url);
 }
 
-export async function saveTemplateBridge(draft: TemplateDraft): Promise<string> {
+export async function saveTemplateBridge(draft: TemplateDraft): Promise<string | null> {
   if (!hasTauri) {
     downloadTemplate(draft);
     return templateFileName(draft);
   }
 
-  return invoke<string>("save_template", { draft: templateDraftToJson(draft) });
+  return invoke<string | null>("save_template", { draft: templateDraftToJson(draft) });
 }

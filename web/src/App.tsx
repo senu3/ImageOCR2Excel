@@ -103,6 +103,10 @@ export default function App() {
     setStatus("テンプレートを保存しています...");
     try {
       const savedTo = await saveTemplateBridge(buildTemplateDraft(state));
+      if (!savedTo) {
+        setStatus("テンプレート保存をキャンセルしました。");
+        return;
+      }
       await new Promise((resolve) => window.setTimeout(resolve, 360));
       dispatch({ type: "mark-saved" });
       setStatus(`テンプレートを保存しました: ${savedTo}`);
