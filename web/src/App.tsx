@@ -29,7 +29,7 @@ import {
   saveTemplateBridge
 } from "./services/tauriBridge";
 import { useTemplateEditor } from "./store/templateStore";
-import type { OcrPreviewResult, PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
+import type { OcrPreviewResult, OcrPreviewStatus, PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
 
 type DragMode =
   | { kind: "create"; origin: { x: number; y: number }; draft: Region }
@@ -47,6 +47,13 @@ const tabLabels: Record<WorkflowTab, string> = {
   template: "テンプレート",
   review: "確認",
   export: "出力"
+};
+
+const reviewStatusLabels: Record<OcrPreviewStatus, string> = {
+  pending: "未実行",
+  success: "完了",
+  empty: "空欄",
+  error: "エラー"
 };
 
 function pointFromEvent(event: PointerEvent<HTMLElement>, host: HTMLElement, zoom: number) {
@@ -889,20 +896,21 @@ function ReviewPanel({
         ) : (
           enabledFields.map((field) => {
             const result = resultsByField.get(field.id);
+            const status = result?.status ?? "pending";
             return (
               <button
-                className={`review-row ${field.id === selectedField?.id ? "selected" : ""}`}
+                className={`review-row ${field.id === selectedField?.id ? "selected" : ""} ${status}`}
                 type="button"
                 key={field.id}
                 onClick={() => onSelect(field.id)}
               >
                 <span className="review-row-title">
                   <strong>{field.name}</strong>
-                  <span>{result ? (result.error ? "エラー" : "完了") : "未実行"}</span>
+                  <span>{reviewStatusLabels[status]}</span>
                 </span>
                 {result ? (
                   <>
-                    <span className={result.error ? "review-error" : "review-value"}>
+                    <span className={result.status === "error" ? "review-error" : "review-value"}>
                       {result.error || result.value || "空の結果"}
                     </span>
                     {result.rawText && result.rawText !== result.value && (

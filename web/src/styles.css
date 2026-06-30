@@ -661,6 +661,18 @@ h2 {
   font-size: 0.74rem;
 }
 
+.review-row.success .review-row-title span {
+  color: var(--teal);
+}
+
+.review-row.empty .review-row-title span {
+  color: var(--warning);
+}
+
+.review-row.error .review-row-title span {
+  color: var(--danger);
+}
+
 .review-value {
   color: var(--text);
   font-size: 0.86rem;

@@ -37,6 +37,12 @@ type OcrPreviewData = {
   }[];
 };
 
+function ocrPreviewStatus(result: OcrPreviewData["results"][number]): OcrPreviewResult["status"] {
+  if (result.error) return "error";
+  if (!result.value.trim()) return "empty";
+  return "success";
+}
+
 export async function openSampleImage(): Promise<ImageRef | null> {
   const raw = await openSampleImageBridge();
   if (!raw) return null;
@@ -93,6 +99,7 @@ export async function ocrPreviewBridge(
   return data.results.map((result) => ({
     fieldId: result.field_id,
     name: result.name,
+    status: ocrPreviewStatus(result),
     rawText: result.raw_text,
     value: result.value,
     error: result.error ?? null,

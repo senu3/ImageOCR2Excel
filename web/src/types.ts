@@ -25,9 +25,12 @@ export type ImageRef = {
   url?: string;
 };
 
+export type OcrPreviewStatus = "pending" | "success" | "empty" | "error";
+
 export type OcrPreviewResult = {
   fieldId: string;
   name: string;
+  status: OcrPreviewStatus;
   rawText: string;
   value: string;
   error?: string | null;
