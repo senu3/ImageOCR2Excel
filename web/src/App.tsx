@@ -199,17 +199,35 @@ export default function App() {
   }
 
   function updateOcrResultValue(fieldId: string, value: string) {
-    setOcrResults((current) =>
-      current.map((result) =>
-        result.fieldId === fieldId
-          ? {
-              ...result,
-              value,
-              status: value.trim() ? "success" : "empty"
-            }
-          : result
-      )
-    );
+    setOcrResults((current) => {
+      const nextStatus = value.trim() ? "success" : "empty";
+      if (current.some((result) => result.fieldId === fieldId)) {
+        return current.map((result) =>
+          result.fieldId === fieldId
+            ? {
+                ...result,
+                value,
+                error: null,
+                status: nextStatus
+              }
+            : result
+        );
+      }
+
+      const field = sortedFields.find((item) => item.id === fieldId);
+      return [
+        ...current,
+        {
+          fieldId,
+          name: field?.name ?? "項目",
+          status: nextStatus,
+          rawText: "",
+          value,
+          error: null,
+          warnings: []
+        }
+      ];
+    });
   }
 
   function startCreate(event: PointerEvent<HTMLDivElement>) {
@@ -391,7 +409,11 @@ export default function App() {
               selectedField={selectedField}
               onRunAll={() => runOcrPreview("all")}
               onRunSelected={() => runOcrPreview("selected")}
+              onRename={(fieldId, name) => dispatch({ type: "update-field", fieldId, patch: { name } })}
               onResultChange={updateOcrResultValue}
+              onPostprocess={(fieldId, postprocess) =>
+                dispatch({ type: "set-postprocess", fieldId, postprocess })
+              }
               onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
             />
           ) : (
@@ -860,7 +882,9 @@ function ReviewPanel({
   selectedField,
   onRunAll,
   onRunSelected,
+  onRename,
   onResultChange,
+  onPostprocess,
   onSelect
 }: {
   busy: boolean;
@@ -869,7 +893,9 @@ function ReviewPanel({
   selectedField: TemplateField | null;
   onRunAll: () => void;
   onRunSelected: () => void;
+  onRename: (fieldId: string, name: string) => void;
   onResultChange: (fieldId: string, value: string) => void;
+  onPostprocess: (fieldId: string, postprocess: PostprocessRule) => void;
   onSelect: (fieldId: string) => void;
 }) {
   const resultsByField = new Map(results.map((result) => [result.fieldId, result]));
@@ -938,28 +964,28 @@ function ReviewPanel({
       </section>
 
       <ReviewResultInspector
-        busy={busy}
         result={selectedResult}
         selectedField={selectedField}
-        onRunSelected={onRunSelected}
+        onRename={onRename}
         onResultChange={onResultChange}
+        onPostprocess={onPostprocess}
       />
     </div>
   );
 }
 
 function ReviewResultInspector({
-  busy,
   result,
   selectedField,
-  onRunSelected,
-  onResultChange
+  onRename,
+  onResultChange,
+  onPostprocess
 }: {
-  busy: boolean;
   result: OcrPreviewResult | null;
   selectedField: TemplateField | null;
-  onRunSelected: () => void;
+  onRename: (fieldId: string, name: string) => void;
   onResultChange: (fieldId: string, value: string) => void;
+  onPostprocess: (fieldId: string, postprocess: PostprocessRule) => void;
 }) {
   if (!selectedField) {
     return (
@@ -978,34 +1004,35 @@ function ReviewResultInspector({
       <div className="inspector-heading">
         <div>
           <span className="section-label">Selected Result</span>
-          <h2>#{selectedField.order} {selectedField.name}</h2>
+          <h2>選択結果</h2>
         </div>
-        <button className="icon-button" type="button" aria-label="この項目を再OCR" onClick={onRunSelected} disabled={busy}>
-          <RefreshCw size={16} />
-        </button>
       </div>
+
+      <label className="form-field">
+        <span>項目名</span>
+        <input value={selectedField.name} onChange={(event) => onRename(selectedField.id, event.target.value)} />
+      </label>
 
       <label className="form-field">
         <span>OCR値</span>
         <input
           value={result?.value ?? ""}
-          placeholder={result ? "空の結果" : "OCR未実行"}
-          disabled={!result}
+          placeholder="OCR値を入力"
           onChange={(event) => onResultChange(selectedField.id, event.target.value)}
         />
       </label>
 
-      <div className="review-raw-block">
-        <span>Raw text</span>
-        <p>{result?.rawText || result?.error || "OCR Preview を実行すると raw text が表示されます。"}</p>
-      </div>
-
-      <div className="region-metrics" aria-label="選択結果情報">
-        <span>列 {selectedField.order}</span>
-        <span>{selectedField.postprocess}</span>
-        <span>{result?.status ?? "pending"}</span>
-        <span>{selectedField.region.width} x {selectedField.region.height}</span>
-      </div>
+      <label className="form-field">
+        <span>後処理</span>
+        <select
+          value={selectedField.postprocess}
+          onChange={(event) => onPostprocess(selectedField.id, event.target.value as PostprocessRule)}
+        >
+          {postprocessOptions.map((option) => (
+            <option key={option}>{option}</option>
+          ))}
+        </select>
+      </label>
     </section>
   );
 }

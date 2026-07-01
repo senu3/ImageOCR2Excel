@@ -722,31 +722,6 @@ h2 {
   background: color-mix(in oklch, var(--surface) 72%, var(--bg-deep) 28%);
 }
 
-.review-raw-block {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.review-raw-block span {
-  color: var(--muted);
-  font-size: 0.74rem;
-  font-weight: 650;
-}
-
-.review-raw-block p {
-  min-height: 2.4rem;
-  max-height: 5.2rem;
-  margin: 0;
-  overflow: auto;
-  padding: var(--space-2);
-  border: 1px solid color-mix(in oklch, var(--border) 62%, var(--control) 38%);
-  border-radius: var(--radius-sm);
-  background: var(--control);
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
 .field-row {
   display: grid;
   grid-template-columns: auto auto auto minmax(0, 1fr) auto;
