@@ -547,19 +547,19 @@ select:focus-visible,
 
 .review-workspace {
   display: grid;
-  grid-template-rows: 3rem auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   background: var(--surface-2);
   overflow: hidden;
 }
 
-.review-workspace > .workflow-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, 7.5rem);
-  justify-content: end;
-  justify-self: stretch;
-  width: 100%;
+.review-toolbar .workflow-tabs {
+  grid-template-columns: repeat(3, 6.75rem);
+  width: auto;
   min-width: 0;
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
 }
 
 .review-toolbar {
@@ -1253,12 +1253,12 @@ h2 {
     flex-wrap: wrap;
   }
 
-  .review-workspace > .workflow-tabs {
+  .review-toolbar .workflow-tabs {
     grid-template-columns: repeat(3, 1fr);
-    justify-content: stretch;
-    justify-self: stretch;
     width: 100%;
     min-width: 0;
+    order: 3;
+    flex-basis: 100%;
   }
 
   .workflow-panel {

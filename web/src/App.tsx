@@ -1008,20 +1008,20 @@ function ReviewWorkspace({
       .map((result) => [result.fieldId, result])
   );
   const enabledFields = fields.filter((field) => field.enabled);
+  const selectedEnabledField = selectedField?.enabled ? selectedField : null;
   const selectedResult = selectedField ? resultsByField.get(selectedField.id) ?? null : null;
+  const reviewedCount = enabledFields.filter((field) => resultsByField.has(field.id)).length;
 
   return (
     <section className="review-workspace" aria-label="OCR確認">
-      <WorkflowTabs activeTab={activeTab} onChange={onTabChange} />
-
       <div className="review-toolbar">
         <div>
           <span className="section-label">Review</span>
           <h2>確認テーブル</h2>
         </div>
         <div className="review-toolbar-actions">
-          <span className="count-pill">{results.length} / {enabledFields.length}</span>
-          <button className="tool-button primary" type="button" onClick={onRunSelected} disabled={busy || !selectedField}>
+          <span className="count-pill">{reviewedCount} / {enabledFields.length}</span>
+          <button className="tool-button primary" type="button" onClick={onRunSelected} disabled={busy || !selectedEnabledField}>
             <RefreshCw size={16} />
             選択セルをOCR
           </button>
@@ -1029,6 +1029,7 @@ function ReviewWorkspace({
             <RefreshCw size={16} />
             現在の画像をOCR
           </button>
+          <WorkflowTabs activeTab={activeTab} onChange={onTabChange} />
         </div>
       </div>
 
@@ -1098,8 +1099,8 @@ function ReviewWorkspace({
             postprocess: selectedField ? editedFields.postprocess.includes(selectedField.id) : false
           }}
           image={image}
-          result={selectedResult}
-          selectedField={selectedField}
+          result={selectedEnabledField ? selectedResult : null}
+          selectedField={selectedEnabledField}
           onRename={onRename}
           onResultChange={onResultChange}
           onPostprocess={onPostprocess}
