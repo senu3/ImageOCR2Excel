@@ -109,6 +109,9 @@ export async function ocrPreviewBridge(
   });
   const data = JSON.parse(raw) as OcrPreviewData;
   return data.results.map((result) => ({
+    imageId: data.image_path,
+    imageName: data.image_path.split(/[\\/]/).filter(Boolean).pop() ?? data.image_path,
+    imagePath: data.image_path,
     fieldId: result.field_id,
     name: result.name,
     status: ocrPreviewStatus(result),

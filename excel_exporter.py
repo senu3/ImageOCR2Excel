@@ -141,7 +141,7 @@ class ExcelExporter:
     def _export_headers(self, fields: list[TemplateField], include_filename: bool) -> list[str]:
         headers = [field.name for field in fields]
         if include_filename:
-            return ["画像ファイル", *headers]
+            return ["画像名", *headers]
         return headers
 
     def _write_excel_row(self, sheet, row_index: int, start_col: int, values: list[str]) -> None:

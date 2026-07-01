@@ -28,6 +28,9 @@ export type ImageRef = {
 export type OcrPreviewStatus = "pending" | "success" | "empty" | "error";
 
 export type OcrPreviewResult = {
+  imageId: string;
+  imageName: string;
+  imagePath?: string;
   fieldId: string;
   name: string;
   status: OcrPreviewStatus;

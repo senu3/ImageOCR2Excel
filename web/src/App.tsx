@@ -29,7 +29,7 @@ import {
   saveTemplateBridge
 } from "./services/tauriBridge";
 import { useTemplateEditor } from "./store/templateStore";
-import type { ExcelExportResult, OcrPreviewResult, PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
+import type { ExcelExportResult, ImageRef, OcrPreviewResult, PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
 
 type DragMode =
   | { kind: "create"; origin: { x: number; y: number }; draft: Region }
@@ -51,6 +51,10 @@ const tabLabels: Record<WorkflowTab, string> = {
   review: "確認",
   export: "出力"
 };
+
+function reviewCellKey(imageId: string, fieldId: string) {
+  return `${imageId}::${fieldId}`;
+}
 
 function pointFromEvent(event: PointerEvent<HTMLElement>, host: HTMLElement, zoom: number) {
   const rect = host.getBoundingClientRect();
@@ -191,9 +195,15 @@ export default function App() {
     try {
       const results = await ocrPreviewBridge(image.path, buildTemplateDraft(state), fieldIds);
       setOcrResults((current) => {
-        const next = new Map(current.map((result) => [result.fieldId, result]));
+        const next = new Map(current.map((result) => [reviewCellKey(result.imageId, result.fieldId), result]));
         for (const result of results) {
-          next.set(result.fieldId, result);
+          const resultWithImage = {
+            ...result,
+            imageId: image.id,
+            imageName: image.name,
+            imagePath: image.path
+          };
+          next.set(reviewCellKey(image.id, result.fieldId), resultWithImage);
         }
         return Array.from(next.values());
       });
@@ -223,7 +233,11 @@ export default function App() {
     setExportBusy(true);
     setStatus("Excelファイルを書き出しています...");
     try {
-      const result = await exportExcelBridge(image.path, buildTemplateDraft(state), ocrResults);
+      const result = await exportExcelBridge(
+        image.path,
+        buildTemplateDraft(state),
+        ocrResults.filter((item) => item.imageId === image.id)
+      );
       if (!result) {
         setStatus("Excel Export をキャンセルしました。");
         return;
@@ -242,12 +256,13 @@ export default function App() {
   }
 
   function updateOcrResultValue(fieldId: string, value: string) {
+    const imageId = image?.id ?? "current-image";
     markReviewEdited("value", fieldId);
     setOcrResults((current) => {
       const nextStatus = value.trim() ? "success" : "empty";
-      if (current.some((result) => result.fieldId === fieldId)) {
+      if (current.some((result) => reviewCellKey(result.imageId, result.fieldId) === reviewCellKey(imageId, fieldId))) {
         return current.map((result) =>
-          result.fieldId === fieldId
+          reviewCellKey(result.imageId, result.fieldId) === reviewCellKey(imageId, fieldId)
             ? {
                 ...result,
                 value,
@@ -262,6 +277,9 @@ export default function App() {
       return [
         ...current,
         {
+          imageId,
+          imageName: image?.name ?? "現在の画像",
+          imagePath: image?.path,
           fieldId,
           name: field?.name ?? "項目",
           status: nextStatus,
@@ -400,96 +418,103 @@ export default function App() {
         onSave={saveTemplate}
       />
 
-      <main className="main-workspace" id="main-content">
-        <section className="workspace" aria-label="画像ワークスペース">
-          <CanvasToolbar
-            tool={state.canvas.tool}
-            zoom={state.canvas.zoom}
-            onTool={(tool) => dispatch({ type: "set-tool", tool })}
-            onZoom={(zoom) => dispatch({ type: "set-zoom", zoom })}
+      <main className={`main-workspace ${activeTab === "review" ? "review-mode" : ""}`} id="main-content">
+        {activeTab === "review" ? (
+          <ReviewWorkspace
+            activeTab={activeTab}
+            busy={ocrBusy}
+            fields={sortedFields}
+            image={image}
+            results={ocrResults}
+            selectedField={selectedField}
+            editedFields={reviewEdited}
+            onTabChange={setActiveTab}
+            onRunAll={() => runOcrPreview("all")}
+            onRunSelected={() => runOcrPreview("selected")}
+            onRename={updateReviewFieldName}
+            onResultChange={updateOcrResultValue}
+            onPostprocess={updateReviewPostprocess}
+            onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
           />
-          <div className="canvas-shell">
-            <div
-              className="image-stage"
-              ref={canvasRef}
-              style={{
-                width: image ? image.width * state.canvas.zoom : 920,
-                height: image ? image.height * state.canvas.zoom : 620
-              }}
-              onPointerDown={startCreate}
-              onPointerMove={updateDrag}
-              onPointerUp={finishDrag}
-            >
-              {image ? (
-                <SampleDocument image={image} zoom={state.canvas.zoom} />
-              ) : (
-                <div className="canvas-empty">
-                  <FileImage size={30} />
-                  <strong>サンプル画像を開いてください</strong>
-                  <span>テンプレート作成では、読み取りたい場所をドラッグして項目名を付けます。</span>
+        ) : (
+          <>
+            <section className="workspace" aria-label="画像ワークスペース">
+              <CanvasToolbar
+                tool={state.canvas.tool}
+                zoom={state.canvas.zoom}
+                onTool={(tool) => dispatch({ type: "set-tool", tool })}
+                onZoom={(zoom) => dispatch({ type: "set-zoom", zoom })}
+              />
+              <div className="canvas-shell">
+                <div
+                  className="image-stage"
+                  ref={canvasRef}
+                  style={{
+                    width: image ? image.width * state.canvas.zoom : 920,
+                    height: image ? image.height * state.canvas.zoom : 620
+                  }}
+                  onPointerDown={startCreate}
+                  onPointerMove={updateDrag}
+                  onPointerUp={finishDrag}
+                >
+                  {image ? (
+                    <SampleDocument image={image} zoom={state.canvas.zoom} />
+                  ) : (
+                    <div className="canvas-empty">
+                      <FileImage size={30} />
+                      <strong>サンプル画像を開いてください</strong>
+                      <span>テンプレート作成では、読み取りたい場所をドラッグして項目名を付けます。</span>
+                    </div>
+                  )}
+
+                  {image &&
+                    sortedFields.map((field) => (
+                      <RegionBox
+                        key={field.id}
+                        field={field}
+                        zoom={state.canvas.zoom}
+                        selected={field.id === selectedField?.id}
+                        onSelect={() => dispatch({ type: "select-field", fieldId: field.id })}
+                        onMoveStart={(event) => startMove(event, field)}
+                        onResizeStart={(event) => startResize(event, field)}
+                      />
+                    ))}
+
+                  {drag?.kind === "create" && <DraftRegion region={drag.draft} zoom={state.canvas.zoom} />}
                 </div>
+              </div>
+            </section>
+
+            <aside className="workflow-panel" aria-label="ワークフローパネル">
+              <WorkflowTabs activeTab={activeTab} onChange={setActiveTab} />
+              {activeTab === "template" ? (
+                <TemplatePanel
+                  fields={sortedFields}
+                  selectedField={selectedField}
+                  selectedIssues={selectedIssues}
+                  onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
+                  onToggle={(field) =>
+                    dispatch({ type: "update-field", fieldId: field.id, patch: { enabled: !field.enabled } })
+                  }
+                  onRename={(fieldId, name) => dispatch({ type: "update-field", fieldId, patch: { name } })}
+                  onMove={(fieldId, direction) => dispatch({ type: "move-field", fieldId, direction })}
+                  onPostprocess={(fieldId, postprocess) =>
+                    dispatch({ type: "set-postprocess", fieldId, postprocess })
+                  }
+                  onDelete={(fieldId) => dispatch({ type: "delete-field", fieldId })}
+                />
+              ) : (
+                <ExportPanel
+                  busy={exportBusy}
+                  fields={sortedFields}
+                  result={exportResult}
+                  reviewResults={ocrResults}
+                  onExport={runExcelExport}
+                />
               )}
-
-              {image &&
-                sortedFields.map((field) => (
-                  <RegionBox
-                    key={field.id}
-                    field={field}
-                    zoom={state.canvas.zoom}
-                    selected={field.id === selectedField?.id}
-                    onSelect={() => dispatch({ type: "select-field", fieldId: field.id })}
-                    onMoveStart={(event) => startMove(event, field)}
-                    onResizeStart={(event) => startResize(event, field)}
-                  />
-                ))}
-
-              {drag?.kind === "create" && <DraftRegion region={drag.draft} zoom={state.canvas.zoom} />}
-            </div>
-          </div>
-        </section>
-
-        <aside className="workflow-panel" aria-label="ワークフローパネル">
-          <WorkflowTabs activeTab={activeTab} onChange={setActiveTab} />
-          {activeTab === "template" ? (
-            <TemplatePanel
-              fields={sortedFields}
-              selectedField={selectedField}
-              selectedIssues={selectedIssues}
-              onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
-              onToggle={(field) =>
-                dispatch({ type: "update-field", fieldId: field.id, patch: { enabled: !field.enabled } })
-              }
-              onRename={(fieldId, name) => dispatch({ type: "update-field", fieldId, patch: { name } })}
-              onMove={(fieldId, direction) => dispatch({ type: "move-field", fieldId, direction })}
-              onPostprocess={(fieldId, postprocess) =>
-                dispatch({ type: "set-postprocess", fieldId, postprocess })
-              }
-              onDelete={(fieldId) => dispatch({ type: "delete-field", fieldId })}
-            />
-          ) : activeTab === "review" ? (
-            <ReviewPanel
-              busy={ocrBusy}
-              fields={sortedFields}
-              results={ocrResults}
-              selectedField={selectedField}
-              editedFields={reviewEdited}
-              onRunAll={() => runOcrPreview("all")}
-              onRunSelected={() => runOcrPreview("selected")}
-              onRename={updateReviewFieldName}
-              onResultChange={updateOcrResultValue}
-              onPostprocess={updateReviewPostprocess}
-              onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
-            />
-          ) : (
-            <ExportPanel
-              busy={exportBusy}
-              fields={sortedFields}
-              result={exportResult}
-              reviewResults={ocrResults}
-              onExport={runExcelExport}
-            />
-          )}
-        </aside>
+            </aside>
+          </>
+        )}
       </main>
 
       <BottomStatusPanel
@@ -945,12 +970,15 @@ function SelectedFieldInspector({
   );
 }
 
-function ReviewPanel({
+function ReviewWorkspace({
+  activeTab,
   busy,
   fields,
+  image,
   results,
   selectedField,
   editedFields,
+  onTabChange,
   onRunAll,
   onRunSelected,
   onRename,
@@ -958,11 +986,14 @@ function ReviewPanel({
   onPostprocess,
   onSelect
 }: {
+  activeTab: WorkflowTab;
   busy: boolean;
   fields: TemplateField[];
+  image: ImageRef | null;
   results: OcrPreviewResult[];
   selectedField: TemplateField | null;
   editedFields: ReviewEditedFields;
+  onTabChange: (tab: WorkflowTab) => void;
   onRunAll: () => void;
   onRunSelected: () => void;
   onRename: (fieldId: string, name: string) => void;
@@ -970,89 +1001,117 @@ function ReviewPanel({
   onPostprocess: (fieldId: string, postprocess: PostprocessRule) => void;
   onSelect: (fieldId: string) => void;
 }) {
-  const resultsByField = new Map(results.map((result) => [result.fieldId, result]));
+  const currentImageId = image?.id ?? "";
+  const resultsByField = new Map(
+    results
+      .filter((result) => result.imageId === currentImageId)
+      .map((result) => [result.fieldId, result])
+  );
   const enabledFields = fields.filter((field) => field.enabled);
   const selectedResult = selectedField ? resultsByField.get(selectedField.id) ?? null : null;
 
   return (
-    <div className="review-panel">
-      <section className="panel-section summary-section">
+    <section className="review-workspace" aria-label="OCR確認">
+      <WorkflowTabs activeTab={activeTab} onChange={onTabChange} />
+
+      <div className="review-toolbar">
         <div>
           <span className="section-label">Review</span>
-          <h2>OCR Preview</h2>
+          <h2>確認テーブル</h2>
         </div>
-        <span className="count-pill">{results.length} / {enabledFields.length}</span>
-      </section>
+        <div className="review-toolbar-actions">
+          <span className="count-pill">{results.length} / {enabledFields.length}</span>
+          <button className="tool-button primary" type="button" onClick={onRunSelected} disabled={busy || !selectedField}>
+            <RefreshCw size={16} />
+            選択セルをOCR
+          </button>
+          <button className="tool-button" type="button" onClick={onRunAll} disabled={busy || enabledFields.length === 0}>
+            <RefreshCw size={16} />
+            現在の画像をOCR
+          </button>
+        </div>
+      </div>
 
-      <section className="review-actions" aria-label="OCR Preview 操作">
-        <button className="tool-button primary" type="button" onClick={onRunSelected} disabled={busy || !selectedField}>
-          <RefreshCw size={16} />
-          選択項目をOCR
-        </button>
-        <button className="tool-button" type="button" onClick={onRunAll} disabled={busy || enabledFields.length === 0}>
-          <RefreshCw size={16} />
-          全項目をOCR
-        </button>
-      </section>
-
-      <section className="review-table" aria-label="OCR Preview 結果">
-        {enabledFields.length === 0 ? (
-          <div className="empty-block">
-            <PanelRight size={22} />
-            <strong>有効な項目がありません</strong>
-            <span>Templateで読み取り項目を有効にしてください。</span>
-          </div>
-        ) : (
-          <>
-            <div className="review-table-head" aria-hidden="true">
-              <span />
-              <span>列</span>
-              <span>項目</span>
-              <span>OCR値</span>
+      <div className="review-content">
+        <section className="review-sheet" aria-label="OCR Preview 結果">
+          {enabledFields.length === 0 ? (
+            <div className="empty-block">
+              <PanelRight size={22} />
+              <strong>有効な項目がありません</strong>
+              <span>Templateで読み取り項目を有効にしてください。</span>
             </div>
-            <div className="review-table-body">
-              {enabledFields.map((field) => {
-                const result = resultsByField.get(field.id);
-                const status = result?.status ?? "pending";
-                return (
-                  <button
-                    className={`review-table-row ${field.id === selectedField?.id ? "selected" : ""} ${status}`}
-                    type="button"
-                    key={field.id}
-                    onClick={() => onSelect(field.id)}
-                  >
-                    <span className="review-status-dot" aria-label={`OCR状態: ${status}`} />
-                    <span className="review-col-index">{field.order}</span>
-                    <span className="review-field-name">{field.name}</span>
-                    <span className={result?.status === "error" ? "review-error" : "review-value"}>
-                      {result?.error || result?.value || "未実行"}
-                    </span>
-                  </button>
-                );
-              })}
+          ) : !image ? (
+            <div className="empty-block">
+              <FileImage size={22} />
+              <strong>画像がありません</strong>
+              <span>サンプル画像を開いてからOCR結果を確認します。</span>
             </div>
-          </>
-        )}
-      </section>
+          ) : (
+            <div className="review-sheet-scroll">
+              <table className="review-grid-table">
+                <thead>
+                  <tr>
+                    <th className="sticky-image-col">画像名</th>
+                    {enabledFields.map((field) => (
+                      <th key={field.id}>
+                        <span className="review-column-order">#{field.order}</span>
+                        <span>{field.name}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th className="sticky-image-col" scope="row">
+                      <span className="review-image-name">{image.name}</span>
+                      <span className="review-image-size">{image.width} x {image.height}</span>
+                    </th>
+                    {enabledFields.map((field) => {
+                      const result = resultsByField.get(field.id);
+                      const status = result?.status ?? "pending";
+                      return (
+                        <td key={field.id}>
+                          <button
+                            className={`review-cell ${field.id === selectedField?.id ? "selected" : ""} ${status}`}
+                            type="button"
+                            onClick={() => onSelect(field.id)}
+                          >
+                            <span className="review-status-dot" aria-label={`OCR状態: ${status}`} />
+                            <span className={result?.status === "error" ? "review-error" : "review-value"}>
+                              {result?.error || result?.value || "未実行"}
+                            </span>
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
-      <ReviewResultInspector
-        edited={{
-          name: selectedField ? editedFields.name.includes(selectedField.id) : false,
-          value: selectedField ? editedFields.value.includes(selectedField.id) : false,
-          postprocess: selectedField ? editedFields.postprocess.includes(selectedField.id) : false
-        }}
-        result={selectedResult}
-        selectedField={selectedField}
-        onRename={onRename}
-        onResultChange={onResultChange}
-        onPostprocess={onPostprocess}
-      />
-    </div>
+        <ReviewResultInspector
+          edited={{
+            name: selectedField ? editedFields.name.includes(selectedField.id) : false,
+            value: selectedField ? editedFields.value.includes(selectedField.id) : false,
+            postprocess: selectedField ? editedFields.postprocess.includes(selectedField.id) : false
+          }}
+          image={image}
+          result={selectedResult}
+          selectedField={selectedField}
+          onRename={onRename}
+          onResultChange={onResultChange}
+          onPostprocess={onPostprocess}
+        />
+      </div>
+    </section>
   );
 }
 
 function ReviewResultInspector({
   edited,
+  image,
   result,
   selectedField,
   onRename,
@@ -1060,6 +1119,7 @@ function ReviewResultInspector({
   onPostprocess
 }: {
   edited: Record<ReviewEditedKind, boolean>;
+  image: ImageRef | null;
   result: OcrPreviewResult | null;
   selectedField: TemplateField | null;
   onRename: (fieldId: string, name: string) => void;
@@ -1071,8 +1131,8 @@ function ReviewResultInspector({
       <section className="review-inspector">
         <div className="empty-block compact">
           <MousePointer2 size={20} />
-          <strong>行を選択</strong>
-          <span>OCR結果を確認・調整する項目を選んでください。</span>
+          <strong>セルを選択</strong>
+          <span>OCR結果を確認・調整するセルを選んでください。</span>
         </div>
       </section>
     );
@@ -1082,9 +1142,14 @@ function ReviewResultInspector({
     <section className="review-inspector" aria-label="選択結果">
       <div className="inspector-heading">
         <div>
-          <span className="section-label">Selected Result</span>
+          <span className="section-label">Selected Cell</span>
           <h2>選択結果</h2>
         </div>
+      </div>
+
+      <div className="selected-cell-meta">
+        <span>{image?.name ?? "画像未選択"}</span>
+        <strong>#{selectedField.order} {selectedField.name}</strong>
       </div>
 
       <label className="form-field">
@@ -1173,7 +1238,7 @@ function ExportPanel({
         </button>
 
         <p className="export-note">
-          Reviewで修正したOCR値を優先し、未実行の項目は出力時にOCRします。保存先は実行時に選択します。
+          Review表の列順と修正済みOCR値を優先します。未実行の項目は出力時にOCRします。
         </p>
       </section>
 
