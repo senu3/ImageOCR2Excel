@@ -29,7 +29,7 @@ import {
   saveTemplateBridge
 } from "./services/tauriBridge";
 import { useTemplateEditor } from "./store/templateStore";
-import type { OcrPreviewResult, OcrPreviewStatus, PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
+import type { OcrPreviewResult, PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
 
 type DragMode =
   | { kind: "create"; origin: { x: number; y: number }; draft: Region }
@@ -47,13 +47,6 @@ const tabLabels: Record<WorkflowTab, string> = {
   template: "テンプレート",
   review: "確認",
   export: "出力"
-};
-
-const reviewStatusLabels: Record<OcrPreviewStatus, string> = {
-  pending: "未実行",
-  success: "完了",
-  empty: "空欄",
-  error: "エラー"
 };
 
 function pointFromEvent(event: PointerEvent<HTMLElement>, host: HTMLElement, zoom: number) {
@@ -203,6 +196,20 @@ export default function App() {
     } finally {
       setOcrBusy(false);
     }
+  }
+
+  function updateOcrResultValue(fieldId: string, value: string) {
+    setOcrResults((current) =>
+      current.map((result) =>
+        result.fieldId === fieldId
+          ? {
+              ...result,
+              value,
+              status: value.trim() ? "success" : "empty"
+            }
+          : result
+      )
+    );
   }
 
   function startCreate(event: PointerEvent<HTMLDivElement>) {
@@ -384,6 +391,7 @@ export default function App() {
               selectedField={selectedField}
               onRunAll={() => runOcrPreview("all")}
               onRunSelected={() => runOcrPreview("selected")}
+              onResultChange={updateOcrResultValue}
               onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
             />
           ) : (
@@ -852,6 +860,7 @@ function ReviewPanel({
   selectedField,
   onRunAll,
   onRunSelected,
+  onResultChange,
   onSelect
 }: {
   busy: boolean;
@@ -860,10 +869,12 @@ function ReviewPanel({
   selectedField: TemplateField | null;
   onRunAll: () => void;
   onRunSelected: () => void;
+  onResultChange: (fieldId: string, value: string) => void;
   onSelect: (fieldId: string) => void;
 }) {
   const resultsByField = new Map(results.map((result) => [result.fieldId, result]));
   const enabledFields = fields.filter((field) => field.enabled);
+  const selectedResult = selectedField ? resultsByField.get(selectedField.id) ?? null : null;
 
   return (
     <div className="review-panel">
@@ -886,7 +897,7 @@ function ReviewPanel({
         </button>
       </section>
 
-      <section className="review-list" aria-label="OCR Preview 結果">
+      <section className="review-table" aria-label="OCR Preview 結果">
         {enabledFields.length === 0 ? (
           <div className="empty-block">
             <PanelRight size={22} />
@@ -894,38 +905,108 @@ function ReviewPanel({
             <span>Templateで読み取り項目を有効にしてください。</span>
           </div>
         ) : (
-          enabledFields.map((field) => {
-            const result = resultsByField.get(field.id);
-            const status = result?.status ?? "pending";
-            return (
-              <button
-                className={`review-row ${field.id === selectedField?.id ? "selected" : ""} ${status}`}
-                type="button"
-                key={field.id}
-                onClick={() => onSelect(field.id)}
-              >
-                <span className="review-row-title">
-                  <strong>{field.name}</strong>
-                  <span>{reviewStatusLabels[status]}</span>
-                </span>
-                {result ? (
-                  <>
-                    <span className={result.status === "error" ? "review-error" : "review-value"}>
-                      {result.error || result.value || "空の結果"}
+          <>
+            <div className="review-table-head" aria-hidden="true">
+              <span />
+              <span>列</span>
+              <span>項目</span>
+              <span>OCR値</span>
+            </div>
+            <div className="review-table-body">
+              {enabledFields.map((field) => {
+                const result = resultsByField.get(field.id);
+                const status = result?.status ?? "pending";
+                return (
+                  <button
+                    className={`review-table-row ${field.id === selectedField?.id ? "selected" : ""} ${status}`}
+                    type="button"
+                    key={field.id}
+                    onClick={() => onSelect(field.id)}
+                  >
+                    <span className="review-status-dot" aria-label={`OCR状態: ${status}`} />
+                    <span className="review-col-index">{field.order}</span>
+                    <span className="review-field-name">{field.name}</span>
+                    <span className={result?.status === "error" ? "review-error" : "review-value"}>
+                      {result?.error || result?.value || "未実行"}
                     </span>
-                    {result.rawText && result.rawText !== result.value && (
-                      <span className="review-raw">raw: {result.rawText}</span>
-                    )}
-                  </>
-                ) : (
-                  <span className="review-empty">OCR Preview を実行してください。</span>
-                )}
-              </button>
-            );
-          })
+                  </button>
+                );
+              })}
+            </div>
+          </>
         )}
       </section>
+
+      <ReviewResultInspector
+        busy={busy}
+        result={selectedResult}
+        selectedField={selectedField}
+        onRunSelected={onRunSelected}
+        onResultChange={onResultChange}
+      />
     </div>
+  );
+}
+
+function ReviewResultInspector({
+  busy,
+  result,
+  selectedField,
+  onRunSelected,
+  onResultChange
+}: {
+  busy: boolean;
+  result: OcrPreviewResult | null;
+  selectedField: TemplateField | null;
+  onRunSelected: () => void;
+  onResultChange: (fieldId: string, value: string) => void;
+}) {
+  if (!selectedField) {
+    return (
+      <section className="review-inspector">
+        <div className="empty-block compact">
+          <MousePointer2 size={20} />
+          <strong>行を選択</strong>
+          <span>OCR結果を確認・調整する項目を選んでください。</span>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="review-inspector" aria-label="選択結果">
+      <div className="inspector-heading">
+        <div>
+          <span className="section-label">Selected Result</span>
+          <h2>#{selectedField.order} {selectedField.name}</h2>
+        </div>
+        <button className="icon-button" type="button" aria-label="この項目を再OCR" onClick={onRunSelected} disabled={busy}>
+          <RefreshCw size={16} />
+        </button>
+      </div>
+
+      <label className="form-field">
+        <span>OCR値</span>
+        <input
+          value={result?.value ?? ""}
+          placeholder={result ? "空の結果" : "OCR未実行"}
+          disabled={!result}
+          onChange={(event) => onResultChange(selectedField.id, event.target.value)}
+        />
+      </label>
+
+      <div className="review-raw-block">
+        <span>Raw text</span>
+        <p>{result?.rawText || result?.error || "OCR Preview を実行すると raw text が表示されます。"}</p>
+      </div>
+
+      <div className="region-metrics" aria-label="選択結果情報">
+        <span>列 {selectedField.order}</span>
+        <span>{selectedField.postprocess}</span>
+        <span>{result?.status ?? "pending"}</span>
+        <span>{selectedField.region.width} x {selectedField.region.height}</span>
+      </div>
+    </section>
   );
 }
 

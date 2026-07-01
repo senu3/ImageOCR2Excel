@@ -533,7 +533,7 @@ select:focus-visible,
 }
 
 .review-panel {
-  grid-template-rows: auto auto minmax(10rem, 1fr);
+  grid-template-rows: auto auto minmax(9rem, 1fr) auto;
 }
 
 .panel-section,
@@ -599,78 +599,108 @@ h2 {
   justify-content: center;
 }
 
-.review-list {
+.review-table {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   align-content: start;
   min-height: 0;
-  gap: var(--space-2);
   overflow: auto;
   padding-right: 0.12rem;
-}
-
-.review-row {
-  display: grid;
-  width: 100%;
-  gap: var(--space-2);
-  padding: var(--space-3);
   border: 1px solid color-mix(in oklch, var(--border) 68%, var(--surface) 32%);
   border-radius: var(--radius);
   background: color-mix(in oklch, var(--surface) 70%, var(--surface-2) 30%);
+}
+
+.review-table-head,
+.review-table-row {
+  display: grid;
+  grid-template-columns: 0.75rem 2.1rem minmax(5.5rem, 0.82fr) minmax(6rem, 1.18fr);
+  align-items: center;
+  width: 100%;
+  min-height: 2.45rem;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+}
+
+.review-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--bg-deep) 82%, var(--surface) 18%);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.review-table-body {
+  display: grid;
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
+}
+
+.review-table-row {
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 58%, var(--surface) 42%);
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
   text-align: left;
 }
 
-.review-row:hover {
-  background: var(--surface-2);
-  border-color: color-mix(in oklch, var(--border-strong) 70%, var(--surface-2) 30%);
+.review-table-row:last-child {
+  border-bottom: 0;
 }
 
-.review-row.selected {
-  border-color: color-mix(in oklch, var(--accent) 42%, var(--control-active) 58%);
+.review-table-row:hover {
+  background: var(--surface-2);
+}
+
+.review-table-row.selected {
   background: color-mix(in oklch, var(--control-active) 70%, var(--surface-2) 30%);
 }
 
-.review-row-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.review-row-title strong,
-.review-row-title span,
+.review-col-index,
+.review-field-name,
 .review-value,
-.review-error,
-.review-raw,
-.review-empty {
+.review-error {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.review-row-title strong {
-  font-size: 0.88rem;
-}
-
-.review-row-title span,
-.review-raw,
-.review-empty {
+.review-col-index {
   color: var(--muted);
   font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
-.review-row.success .review-row-title span {
-  color: var(--teal);
+.review-field-name {
+  font-size: 0.88rem;
+  font-weight: 700;
 }
 
-.review-row.empty .review-row-title span {
-  color: var(--warning);
+.review-status-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--muted-2);
 }
 
-.review-row.error .review-row-title span {
-  color: var(--danger);
+.review-table-row.success .review-status-dot {
+  background: var(--teal);
+}
+
+.review-table-row.empty .review-status-dot {
+  background: var(--warning);
+}
+
+.review-table-row.error .review-status-dot {
+  background: var(--danger);
 }
 
 .review-value {
@@ -681,6 +711,40 @@ h2 {
 .review-error {
   color: var(--danger);
   font-size: 0.8rem;
+}
+
+.review-inspector {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 72%, var(--bg-deep) 28%);
+}
+
+.review-raw-block {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.review-raw-block span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.review-raw-block p {
+  min-height: 2.4rem;
+  max-height: 5.2rem;
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-2);
+  border: 1px solid color-mix(in oklch, var(--border) 62%, var(--control) 38%);
+  border-radius: var(--radius-sm);
+  background: var(--control);
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .field-row {
