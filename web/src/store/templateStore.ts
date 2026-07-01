@@ -55,6 +55,15 @@ function reducer(state: TemplateEditorState, action: Action): TemplateEditorStat
         canvas: { ...state.canvas, zoom: Math.min(2.4, Math.max(0.32, action.zoom)) }
       };
     case "set-sample-image":
+      if (!state.sampleImage?.path) {
+        return {
+          ...state,
+          dirty: true,
+          fields: [],
+          selectedFieldId: null,
+          sampleImage: action.sampleImage
+        };
+      }
       return {
         ...state,
         dirty: true,

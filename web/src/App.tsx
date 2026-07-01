@@ -1101,6 +1101,15 @@ function ReviewResultInspector({
         />
       </label>
 
+      {result?.error && (
+        <div className="inline-issues">
+          <p>
+            <AlertTriangle size={14} />
+            {result.error}
+          </p>
+        </div>
+      )}
+
       <label className="form-field">
         <span>{edited.postprocess ? "後処理（変更済み）" : "後処理"}</span>
         <select
