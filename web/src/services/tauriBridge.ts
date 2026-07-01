@@ -4,7 +4,7 @@ import {
   templateFileName,
   type TemplateDraft
 } from "./templateDocument";
-import type { ImageRef, OcrPreviewResult } from "../types";
+import type { ExcelExportResult, ImageRef, OcrPreviewResult } from "../types";
 
 const hasTauri = "__TAURI_INTERNALS__" in window;
 
@@ -34,6 +34,18 @@ type OcrPreviewData = {
     value: string;
     error?: string | null;
     warnings?: string[];
+  }[];
+};
+
+type ExcelExportData = {
+  path: string;
+  row_count?: number;
+  total_images?: number;
+  error_count?: number;
+  errors?: {
+    image: string;
+    field: string;
+    error: string;
   }[];
 };
 
@@ -105,4 +117,38 @@ export async function ocrPreviewBridge(
     error: result.error ?? null,
     warnings: result.warnings ?? []
   }));
+}
+
+export async function exportExcelBridge(
+  imagePath: string,
+  draft: TemplateDraft,
+  reviewResults: OcrPreviewResult[]
+): Promise<ExcelExportResult | null> {
+  if (!hasTauri) {
+    throw new Error("Excel Export は Tauri アプリで利用できます。");
+  }
+
+  const raw = await invoke<string | null>("export_excel", {
+    imagePath,
+    draft: templateDraftToJson(draft),
+    reviewResults: JSON.stringify(
+      reviewResults.map((result) => ({
+        field_id: result.fieldId,
+        name: result.name,
+        value: result.value,
+        raw_text: result.rawText,
+        error: result.error ?? null
+      }))
+    )
+  });
+  if (!raw) return null;
+
+  const data = JSON.parse(raw) as ExcelExportData;
+  return {
+    path: data.path,
+    rowCount: data.row_count ?? data.total_images ?? 0,
+    totalImages: data.total_images ?? data.row_count ?? 0,
+    errorCount: data.error_count ?? data.errors?.length ?? 0,
+    errors: data.errors ?? []
+  };
 }

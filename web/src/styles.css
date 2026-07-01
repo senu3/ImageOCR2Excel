@@ -524,7 +524,8 @@ select:focus-visible,
 }
 
 .template-panel,
-.review-panel {
+.review-panel,
+.export-panel {
   display: grid;
   grid-template-rows: auto minmax(10rem, 1fr) auto;
   min-height: 0;
@@ -534,6 +535,10 @@ select:focus-visible,
 
 .review-panel {
   grid-template-rows: auto auto minmax(9rem, 1fr) auto;
+}
+
+.export-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .panel-section,
@@ -720,6 +725,108 @@ h2 {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: color-mix(in oklch, var(--surface) 72%, var(--bg-deep) 28%);
+}
+
+.export-body,
+.export-result {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 72%, var(--bg-deep) 28%);
+}
+
+.export-readiness {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+.export-readiness div,
+.result-grid div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--control);
+}
+
+.export-readiness span,
+.result-grid span,
+.result-row span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.export-readiness strong,
+.result-grid strong,
+.result-row strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-action {
+  justify-content: center;
+  min-height: 2.35rem;
+}
+
+.export-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.export-result {
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
+}
+
+.result-row {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.result-row strong {
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--control);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+.danger-text {
+  color: var(--danger) !important;
+}
+
+.export-errors {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.export-errors p {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--warning);
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .field-row {

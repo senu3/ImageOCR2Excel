@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import sys
+from collections import deque
 from pathlib import Path
 from typing import Any
 
+from excel_exporter import ExcelExporter, validate_export_settings
 from ocr_models import TemplateField
 from template_store import build_template_data, fields_from_template, load_template, save_template
 
@@ -260,11 +262,109 @@ def ocr_preview(payload: dict[str, Any]) -> dict[str, Any]:
     return {"image_path": str(image_path), "results": results}
 
 
+def export_excel(payload: dict[str, Any]) -> dict[str, Any]:
+    from ocr_engine import DEFAULT_LANG, OcrEngine, detect_tesseract
+
+    image_path_value = payload.get("image_path")
+    output_path_value = payload.get("output_path")
+    if not image_path_value:
+        raise BridgeError("file.not_found", "Excel出力対象の画像が指定されていません。")
+    if not output_path_value:
+        raise BridgeError("file.not_found", "Excel出力先が指定されていません。")
+
+    image_path = Path(str(image_path_value))
+    output_path = Path(str(output_path_value))
+    if not image_path.exists():
+        raise BridgeError("file.not_found", "Excel出力対象の画像が見つかりません。", {"path": str(image_path)})
+
+    draft = payload.get("draft")
+    template = payload.get("template")
+    source = draft if isinstance(draft, dict) else template if isinstance(template, dict) else None
+    if source is None:
+        raise BridgeError("template.invalid_format", "Excel出力対象のテンプレートデータが不正です。")
+
+    raw_fields = source.get("fields") or []
+    if not isinstance(raw_fields, list):
+        raise BridgeError("template.invalid_format", "テンプレート項目の形式が不正です。")
+
+    field_pairs: list[tuple[str, TemplateField]] = []
+    for index, item in enumerate(raw_fields):
+        if not isinstance(item, dict):
+            continue
+        field = _field_from_draft(item)
+        if not field.enabled:
+            continue
+        field_pairs.append((str(item.get("id") or f"field-{index + 1}"), field))
+
+    if not field_pairs:
+        raise BridgeError("template.invalid_field", "Excel出力対象の項目がありません。")
+
+    output_settings = payload.get("output_settings")
+    if not isinstance(output_settings, dict):
+        output_settings = source.get("output_settings") if isinstance(source.get("output_settings"), dict) else {}
+
+    write_mode = str(output_settings.get("write_mode") or "overwrite")
+    settings, error = validate_export_settings(
+        sheet_name=str(output_settings.get("sheet_name") or "OCR結果"),
+        write_mode="追記" if write_mode in {"append", "追記"} else "上書き",
+        start_cell=str(output_settings.get("start_cell") or "A1"),
+        include_filename=bool(output_settings.get("include_filename", True)),
+        include_header=bool(output_settings.get("include_header", True)),
+    )
+    if error or settings is None:
+        raise BridgeError("excel.invalid_settings", error or "Excel出力設定が不正です。")
+
+    review_results = payload.get("review_results")
+    reviewed_values: dict[str, str] = {}
+    if isinstance(review_results, list):
+        for item in review_results:
+            if not isinstance(item, dict) or item.get("error"):
+                continue
+            field_id = item.get("field_id") or item.get("fieldId")
+            if field_id is None:
+                continue
+            reviewed_values[str(field_id)] = str(item.get("value") or "")
+
+    reviewed_value_queue: deque[str | None] = deque(reviewed_values.get(field_id) for field_id, _ in field_pairs)
+    lang = str(source.get("lang") or DEFAULT_LANG)
+    tesseract_path = str(source.get("tesseract_path") or "") or detect_tesseract()
+    engine = OcrEngine()
+
+    def ocr_callback(image, field: TemplateField) -> tuple[str | None, str | None]:
+        reviewed_value = reviewed_value_queue.popleft() if reviewed_value_queue else None
+        if reviewed_value is not None:
+            return reviewed_value, None
+        return engine.recognize_field(image, field, lang, tesseract_path)
+
+    try:
+        result = ExcelExporter().export(
+            output_path=output_path,
+            image_files=[image_path],
+            fields=[field for _, field in field_pairs],
+            settings=settings,
+            ocr_callback=ocr_callback,
+        )
+    except Exception as error:
+        raise BridgeError("excel.export_failed", "Excel出力に失敗しました。", {"error": str(error)}) from error
+
+    return {
+        "path": str(output_path),
+        "row_count": result.total_images,
+        "total_images": result.total_images,
+        "error_count": len(result.errors),
+        "errors": [
+            {"image": error.image, "field": error.field, "error": error.error}
+            for error in result.errors
+        ],
+    }
+
+
 COMMANDS = {
     "image_open": image_open,
     "ocr_preview": ocr_preview,
     "template_save": template_save,
     "template_load": template_load,
+    "export_excel": export_excel,
 }
 
 

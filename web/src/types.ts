@@ -37,6 +37,20 @@ export type OcrPreviewResult = {
   warnings: string[];
 };
 
+export type ExcelExportError = {
+  image: string;
+  field: string;
+  error: string;
+};
+
+export type ExcelExportResult = {
+  path: string;
+  rowCount: number;
+  totalImages: number;
+  errorCount: number;
+  errors: ExcelExportError[];
+};
+
 export type TemplateField = {
   id: string;
   name: string;

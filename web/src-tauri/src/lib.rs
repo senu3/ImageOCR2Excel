@@ -5,6 +5,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_sample_image,
             ocr_preview,
+            export_excel,
             load_template,
             save_template
         ])
@@ -50,6 +51,46 @@ fn ocr_preview(
         json!({ "image_path": image_path, "draft": draft, "field_ids": field_ids }),
     )?;
     serde_json::to_string(&data).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn export_excel(
+    app: AppHandle,
+    image_path: String,
+    draft: String,
+    review_results: String,
+) -> Result<Option<String>, String> {
+    let draft: Value = serde_json::from_str(&draft).map_err(|error| error.to_string())?;
+    let review_results: Value =
+        serde_json::from_str(&review_results).map_err(|error| error.to_string())?;
+    let template_name = draft
+        .get("template_name")
+        .and_then(|value| value.as_str())
+        .unwrap_or("ocr-export");
+    let default_file_name = format!("{}.xlsx", safe_file_stem(template_name));
+    let output_path = match app
+        .dialog()
+        .file()
+        .add_filter("Excel Workbook", &["xlsx"])
+        .set_file_name(&default_file_name)
+        .blocking_save_file()
+    {
+        Some(path) => path.into_path().map_err(|error| error.to_string())?,
+        None => return Ok(None),
+    };
+
+    let data = run_python_bridge(
+        "export_excel",
+        json!({
+            "image_path": image_path,
+            "output_path": output_path.display().to_string(),
+            "draft": draft,
+            "review_results": review_results,
+        }),
+    )?;
+    serde_json::to_string(&data)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

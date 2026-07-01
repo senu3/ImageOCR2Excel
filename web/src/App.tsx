@@ -3,7 +3,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronsUpDown,
   FileImage,
   FolderOpen,
   GripVertical,
@@ -22,6 +21,7 @@ import {
 import { PointerEvent, useMemo, useRef, useState } from "react";
 import { buildTemplateDraft, parseTemplateLoadData, templateDraftToEditorData } from "./services/templateDocument";
 import {
+  exportExcelBridge,
   imageUrlFromPath,
   loadTemplateBridge,
   ocrPreviewBridge,
@@ -29,7 +29,7 @@ import {
   saveTemplateBridge
 } from "./services/tauriBridge";
 import { useTemplateEditor } from "./store/templateStore";
-import type { OcrPreviewResult, PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
+import type { ExcelExportResult, OcrPreviewResult, PostprocessRule, Region, TemplateField, WorkflowTab } from "./types";
 
 type DragMode =
   | { kind: "create"; origin: { x: number; y: number }; draft: Region }
@@ -93,6 +93,8 @@ export default function App() {
   const [drag, setDrag] = useState<DragMode>(null);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrResults, setOcrResults] = useState<OcrPreviewResult[]>([]);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportResult, setExportResult] = useState<ExcelExportResult | null>(null);
   const [reviewEdited, setReviewEdited] = useState<ReviewEditedFields>({
     name: [],
     value: [],
@@ -205,6 +207,37 @@ export default function App() {
       setStatus(error instanceof Error ? error.message : "OCR Preview でエラーが発生しました。");
     } finally {
       setOcrBusy(false);
+    }
+  }
+
+  async function runExcelExport() {
+    if (!image?.path) {
+      setStatus("Excel Export には実画像のパスが必要です。サンプル画像を開いてください。");
+      return;
+    }
+    if (sortedFields.filter((field) => field.enabled).length === 0) {
+      setStatus("Excel Export する有効な項目がありません。");
+      return;
+    }
+
+    setExportBusy(true);
+    setStatus("Excelファイルを書き出しています...");
+    try {
+      const result = await exportExcelBridge(image.path, buildTemplateDraft(state), ocrResults);
+      if (!result) {
+        setStatus("Excel Export をキャンセルしました。");
+        return;
+      }
+      setExportResult(result);
+      setStatus(
+        result.errorCount > 0
+          ? `Excel Export が完了しました（エラー ${result.errorCount} 件）。`
+          : `Excel Export が完了しました: ${result.path}`
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Excel Export でエラーが発生しました。");
+    } finally {
+      setExportBusy(false);
     }
   }
 
@@ -448,7 +481,13 @@ export default function App() {
               onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
             />
           ) : (
-            <ReservedPanel tab={activeTab} />
+            <ExportPanel
+              busy={exportBusy}
+              fields={sortedFields}
+              result={exportResult}
+              reviewResults={ocrResults}
+              onExport={runExcelExport}
+            />
           )}
         </aside>
       </main>
@@ -1077,22 +1116,98 @@ function ReviewResultInspector({
   );
 }
 
-function ReservedPanel({ tab }: { tab: Exclude<WorkflowTab, "template"> }) {
-  const content =
-    tab === "review"
-      ? {
-          title: "OCR確認は次フェーズ",
-          body: "Templateで確定した項目を、画像ごとのOCR結果とinline correctionへ接続します。"
-        }
-      : {
-          title: "Excel出力は次フェーズ",
-          body: "出力ファイル、シート名、開始セル、追記/上書き、実行結果をここへ集約します。"
-        };
+function ExportPanel({
+  busy,
+  fields,
+  result,
+  reviewResults,
+  onExport
+}: {
+  busy: boolean;
+  fields: TemplateField[];
+  result: ExcelExportResult | null;
+  reviewResults: OcrPreviewResult[];
+  onExport: () => void;
+}) {
+  const enabledFields = fields.filter((field) => field.enabled);
+  const usableReviewCount = reviewResults.filter((item) => !item.error && item.value.trim()).length;
+
   return (
-    <div className="reserved-panel">
-      <ChevronsUpDown size={24} />
-      <h2>{content.title}</h2>
-      <p>{content.body}</p>
+    <div className="export-panel">
+      <section className="panel-section summary-section">
+        <div>
+          <span className="section-label">Export</span>
+          <h2>Excel Export</h2>
+        </div>
+        <span className="count-pill">{enabledFields.length} 列</span>
+      </section>
+
+      <section className="export-body">
+        <div className="export-readiness" aria-label="出力内容">
+          <div>
+            <span>対象画像</span>
+            <strong>現在のサンプル画像</strong>
+          </div>
+          <div>
+            <span>出力列</span>
+            <strong>{enabledFields.length} 項目</strong>
+          </div>
+          <div>
+            <span>Review反映</span>
+            <strong>{usableReviewCount} 件</strong>
+          </div>
+        </div>
+
+        <button className="tool-button primary export-action" type="button" onClick={onExport} disabled={busy || enabledFields.length === 0}>
+          <Save size={16} />
+          {busy ? "書き出し中" : "現在の画像をExcel出力"}
+        </button>
+
+        <p className="export-note">
+          Reviewで修正したOCR値を優先し、未実行の項目は出力時にOCRします。保存先は実行時に選択します。
+        </p>
+      </section>
+
+      <section className="export-result" aria-label="Excel Export 結果">
+        {result ? (
+          <>
+            <div className="result-row">
+              <span>出力先</span>
+              <strong title={result.path}>{result.path}</strong>
+            </div>
+            <div className="result-grid">
+              <div>
+                <span>画像</span>
+                <strong>{result.totalImages}</strong>
+              </div>
+              <div>
+                <span>行</span>
+                <strong>{result.rowCount}</strong>
+              </div>
+              <div>
+                <span>エラー</span>
+                <strong className={result.errorCount > 0 ? "danger-text" : ""}>{result.errorCount}</strong>
+              </div>
+            </div>
+            {result.errors.length > 0 && (
+              <div className="export-errors">
+                {result.errors.map((error, index) => (
+                  <p key={`${error.image}-${error.field}-${index}`}>
+                    <AlertTriangle size={14} />
+                    {error.image} / {error.field || "画像"}: {error.error}
+                  </p>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="empty-block compact">
+            <Save size={20} />
+            <strong>まだ出力していません</strong>
+            <span>まずテンプレートと確認結果を使って、現在の画像をExcelに書き出します。</span>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
