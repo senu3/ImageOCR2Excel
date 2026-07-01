@@ -41,6 +41,9 @@ type DragMode =
     }
   | null;
 
+type ReviewEditedKind = "name" | "value" | "postprocess";
+type ReviewEditedFields = Record<ReviewEditedKind, string[]>;
+
 const postprocessOptions: PostprocessRule[] = ["そのまま", "数字のみ", "数値抽出", "英数字のみ"];
 
 const tabLabels: Record<WorkflowTab, string> = {
@@ -90,6 +93,11 @@ export default function App() {
   const [drag, setDrag] = useState<DragMode>(null);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrResults, setOcrResults] = useState<OcrPreviewResult[]>([]);
+  const [reviewEdited, setReviewEdited] = useState<ReviewEditedFields>({
+    name: [],
+    value: [],
+    postprocess: []
+  });
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
   const image = state.sampleImage;
@@ -117,6 +125,7 @@ export default function App() {
       }
       dispatch({ type: "set-sample-image", sampleImage: sample });
       setOcrResults([]);
+      setReviewEdited({ name: [], value: [], postprocess: [] });
       setStatus(`サンプル画像を開きました: ${sample.name}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "サンプル画像の読込でエラーが発生しました。");
@@ -157,6 +166,7 @@ export default function App() {
         : null;
       dispatch({ type: "load-template", ...editorData, sampleImage });
       setOcrResults([]);
+      setReviewEdited({ name: [], value: [], postprocess: [] });
       setStatus(`テンプレートを読み込みました: ${loaded.path}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "テンプレート読込でエラーが発生しました。");
@@ -199,6 +209,7 @@ export default function App() {
   }
 
   function updateOcrResultValue(fieldId: string, value: string) {
+    markReviewEdited("value", fieldId);
     setOcrResults((current) => {
       const nextStatus = value.trim() ? "success" : "empty";
       if (current.some((result) => result.fieldId === fieldId)) {
@@ -228,6 +239,27 @@ export default function App() {
         }
       ];
     });
+  }
+
+  function markReviewEdited(kind: ReviewEditedKind, fieldId: string) {
+    setReviewEdited((current) =>
+      current[kind].includes(fieldId)
+        ? current
+        : {
+            ...current,
+            [kind]: [...current[kind], fieldId]
+          }
+    );
+  }
+
+  function updateReviewFieldName(fieldId: string, name: string) {
+    markReviewEdited("name", fieldId);
+    dispatch({ type: "update-field", fieldId, patch: { name } });
+  }
+
+  function updateReviewPostprocess(fieldId: string, postprocess: PostprocessRule) {
+    markReviewEdited("postprocess", fieldId);
+    dispatch({ type: "set-postprocess", fieldId, postprocess });
   }
 
   function startCreate(event: PointerEvent<HTMLDivElement>) {
@@ -407,13 +439,12 @@ export default function App() {
               fields={sortedFields}
               results={ocrResults}
               selectedField={selectedField}
+              editedFields={reviewEdited}
               onRunAll={() => runOcrPreview("all")}
               onRunSelected={() => runOcrPreview("selected")}
-              onRename={(fieldId, name) => dispatch({ type: "update-field", fieldId, patch: { name } })}
+              onRename={updateReviewFieldName}
               onResultChange={updateOcrResultValue}
-              onPostprocess={(fieldId, postprocess) =>
-                dispatch({ type: "set-postprocess", fieldId, postprocess })
-              }
+              onPostprocess={updateReviewPostprocess}
               onSelect={(fieldId) => dispatch({ type: "select-field", fieldId })}
             />
           ) : (
@@ -880,6 +911,7 @@ function ReviewPanel({
   fields,
   results,
   selectedField,
+  editedFields,
   onRunAll,
   onRunSelected,
   onRename,
@@ -891,6 +923,7 @@ function ReviewPanel({
   fields: TemplateField[];
   results: OcrPreviewResult[];
   selectedField: TemplateField | null;
+  editedFields: ReviewEditedFields;
   onRunAll: () => void;
   onRunSelected: () => void;
   onRename: (fieldId: string, name: string) => void;
@@ -964,6 +997,11 @@ function ReviewPanel({
       </section>
 
       <ReviewResultInspector
+        edited={{
+          name: selectedField ? editedFields.name.includes(selectedField.id) : false,
+          value: selectedField ? editedFields.value.includes(selectedField.id) : false,
+          postprocess: selectedField ? editedFields.postprocess.includes(selectedField.id) : false
+        }}
         result={selectedResult}
         selectedField={selectedField}
         onRename={onRename}
@@ -975,12 +1013,14 @@ function ReviewPanel({
 }
 
 function ReviewResultInspector({
+  edited,
   result,
   selectedField,
   onRename,
   onResultChange,
   onPostprocess
 }: {
+  edited: Record<ReviewEditedKind, boolean>;
   result: OcrPreviewResult | null;
   selectedField: TemplateField | null;
   onRename: (fieldId: string, name: string) => void;
@@ -1009,12 +1049,12 @@ function ReviewResultInspector({
       </div>
 
       <label className="form-field">
-        <span>項目名</span>
+        <span>{edited.name ? "項目名（編集済み）" : "項目名"}</span>
         <input value={selectedField.name} onChange={(event) => onRename(selectedField.id, event.target.value)} />
       </label>
 
       <label className="form-field">
-        <span>OCR値</span>
+        <span>{edited.value ? "OCR値（修正済み）" : "OCR値"}</span>
         <input
           value={result?.value ?? ""}
           placeholder="OCR値を入力"
@@ -1023,7 +1063,7 @@ function ReviewResultInspector({
       </label>
 
       <label className="form-field">
-        <span>後処理</span>
+        <span>{edited.postprocess ? "後処理（変更済み）" : "後処理"}</span>
         <select
           value={selectedField.postprocess}
           onChange={(event) => onPostprocess(selectedField.id, event.target.value as PostprocessRule)}
