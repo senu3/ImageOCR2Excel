@@ -1,5 +1,5 @@
 [project]
-name = "image-ocr-to-excel"
+name = "ImageOCR2Excel"
 version = "0.1.0"
 description = "Create OCR templates for fixed-format images and export folder batches to Excel."
 readme = "README.md"
@@ -7,12 +7,14 @@ requires-python = ">=3.10"
 dependencies = [
     "customtkinter>=5.2.2",
     "openpyxl>=3.1.0",
+    "paddleocr>=3.7.0,<4",
+    "paddlepaddle>=3.3.1,<4",
     "pillow>=10.0.0",
-    "pytesseract>=0.3.10",
 ]
 
 [project.scripts]
-image-ocr-to-excel = "image_ocr_excel_app:main"
+ImageOCR2Excel = "ImageOCR2Excel.apps.image_ocr:main"
+image-ocr-to-excel = "ImageOCR2Excel.apps.image_ocr:main"
 
 [tool.uv]
 package = false

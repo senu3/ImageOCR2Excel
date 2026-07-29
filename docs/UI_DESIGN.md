@@ -116,17 +116,16 @@ UI code should not implement OCR, Excel writing, template serialization, or coor
 
 Current processing modules:
 
-- `ocr_models.py`: template data model.
-- `ocr_engine.py`: OCR, image preprocessing, postprocessing, coordinate scaling.
-- `excel_exporter.py`: Excel writing and error sheet generation.
-- `template_store.py`: template JSON serialization.
+- `ImageOCR2Excel/models.py`: template data model.
+- `ImageOCR2Excel/ocr/engine.py`: OCR, image preprocessing, postprocessing, coordinate scaling.
+- `ImageOCR2Excel/export/`: Excel/CSV writing and error sheet generation.
+- `ImageOCR2Excel/templates.py`: template JSON serialization.
 
-The future React/Tauri UI should call these capabilities through a small local API or command bridge rather than reimplementing them.
+If the React/Tauri prototype is revived, it should call these capabilities through a small local API or command bridge rather than reimplementing them.
 
 ## Migration Plan
 
-1. Keep the current Python UI working while logic is isolated.
-2. Add a local CLI/API layer around the processing modules.
-3. Build a React prototype for template editing and export settings.
-4. Connect the React UI to the Python engine.
-5. Package with Tauri once the workflow is stable.
+1. Keep the current Python package UI working.
+2. Keep OCR, template, and export logic isolated under `ImageOCR2Excel`.
+3. Add a local CLI/API layer only if the Tauri prototype is revived.
+4. Connect the React UI to the Python engine through that boundary.

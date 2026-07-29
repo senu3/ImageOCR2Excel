@@ -1,54 +1,52 @@
-# Image OCR to Excel
+# ImageOCR2Excel
 
-定型画像の同じ位置から文字を読み取り、画像1枚をExcelの1行として出力するWindows向けOCRアプリです。
+定型画像の同じ位置から文字を読み取り、画像1枚をExcelまたはCSVの1行として出力するWindows向けOCRアプリです。
 
 ## 何をするアプリか
 
-このアプリは、毎回セル番地を指定して転記するための道具ではありません。
+このアプリは、毎回セル番地を指定して転記する道具ではありません。
 
-一度「読み取りテンプレート」を作り、同じ形式の画像フォルダをまとめてExcel化するためのアプリです。
+一度「読み取りテンプレート」を作り、同じ形式の画像フォルダをまとめてExcel化するためのアプリです。テンプレートは新形式の version 1 から開始しており、旧MVPテンプレートの互換維持は対象外です。
 
 ## 主な機能
 
 - サンプル画像上で読み取り範囲をドラッグ作成
-- 範囲ごとに「名前」「値」「備考」などの項目名を設定
+- 範囲ごとに項目名、OCR設定、後処理ルールを設定
 - 項目順を並べ替えてExcelの列順を調整
 - テンプレートをJSONとして保存・読み込み
 - 現在の画像のOCR結果を確認し、必要なら手修正
 - フォルダ内画像を一括OCR
-- `画像ファイル名 + 項目名` の列構成で`.xlsx`へ出力
+- ExcelまたはCSVへ出力
 - シート名、開始セル、上書き/追記、ヘッダー、画像ファイル名列を出力時に設定
-- 項目ごとにOCR後処理ルールを設定
 - 画像サイズが異なる場合、テンプレート作成時の基準サイズに合わせて読み取り範囲を自動スケーリング
-- 一括出力時の失敗はExcel内の`Errors`シートに一覧出力
+- 一括出力時の失敗はExcel内の`Errors`シート、除外通知は`Notices`シートに一覧出力
 
 ## セットアップ
+
+Python 3.12 と `uv` を使います。
 
 ```powershell
 uv sync
 ```
 
-OCRにはTesseract OCR本体が必要です。Windowsでは以下をインストールし、日本語データを含めてください。
-
-- Tesseract OCR: https://github.com/UB-Mannheim/tesseract/wiki
-- インストール時にJapanese language dataを選択
-
-Tesseractのパスが自動検出されない場合は、アプリ内の「設定」から実行ファイルのパスを指定してください。
-
-```text
-C:\Program Files\Tesseract-OCR\tesseract.exe
-```
+OCRはPaddleOCRを標準バックエンドとして使います。Tesseractは依存・テンプレート設定から外しています。
 
 ## 起動
 
 ```powershell
-uv run image_ocr_excel_app.py
+uv run python main.py
 ```
 
 PowerShellランチャーを使う場合は以下です。
 
 ```powershell
 .\run_app.ps1
+```
+
+コマンドファイルから起動する場合:
+
+```powershell
+.\ImageOCR2Excel.cmd
 ```
 
 ## 基本フロー
@@ -60,14 +58,14 @@ PowerShellランチャーを使う場合は以下です。
 5. 必要な項目を作り終えたら「保存」でテンプレート保存
 6. 「画像フォルダ」を選ぶ
 7. 「確認」でOCR結果を見る
-8. 「出力」でExcel出力先と出力設定を選び、「Excelへ一括出力」
+8. 「出力」でExcelまたはCSVの出力先と出力設定を選ぶ
 
-出力されるExcelは、1行目がヘッダー、2行目以降が画像ごとのOCR結果です。
+出力されるExcelは、既定では1行目がヘッダー、2行目以降が画像ごとのOCR結果です。
 
 ```text
-画像ファイル | 名前 | 値 | 備考
-sample1.png | ...  | ... | ...
-sample2.png | ...  | ... | ...
+画像名 | 値 | 備考
+sample1.png | ... | ...
+sample2.png | ... | ...
 ```
 
 ## Excel出力設定
@@ -79,6 +77,7 @@ sample2.png | ...  | ... | ...
 - 開始セル: 例 `A1`, `B2`
 - 画像ファイル名列を出力するか
 - ヘッダー行を出力するか
+- 画像単位またはセット単位の出力レイアウト
 
 追記を選んだ場合、既存シートにデータがあれば最終行の次に追加します。空のシートや新しいシートでは開始セルから書き込みます。
 
@@ -101,26 +100,20 @@ sample2.png | ...  | ... | ...
 
 一括出力時に画像サイズが異なる場合は、横方向・縦方向それぞれの比率で範囲を自動スケーリングします。同じレイアウトで解像度だけが違う画像に対応するための機能です。縦横比やレイアウト自体が変わる画像では、読み取り位置がずれる可能性があります。
 
-## エラー一覧
-
-一括出力では、画像を開けない場合や項目ごとのOCRに失敗した場合でも処理を継続します。
-
-失敗した内容は、出力Excelの`Errors`シートに以下の列で記録されます。
-
-```text
-画像ファイル | 項目 | エラー
-```
-
 ## 構成
 
-処理ロジックはUIから分離しています。
+現在の主対象はPythonパッケージ版です。
 
-- `image_ocr_excel_app.py`: CustomTkinter UI
-- `ocr_models.py`: テンプレート項目モデル
-- `ocr_engine.py`: OCR、画像前処理、後処理、範囲スケーリング
-- `excel_exporter.py`: Excel出力、追記、エラーシート生成
-- `template_store.py`: テンプレートJSON保存・読み込み
-- `docs/UI_DESIGN.md`: 将来のWeb/Tauri UI設計方針
+- `ImageOCR2Excel/apps/image_ocr.py`: アプリ起動設定
+- `ImageOCR2Excel/application.py`: CustomTkinter UIとワークフロー
+- `ImageOCR2Excel/models.py`: テンプレート項目、座標、セット定義
+- `ImageOCR2Excel/ocr/engine.py`: OCR、画像前処理、後処理、範囲スケーリング
+- `ImageOCR2Excel/export/`: Excel/CSV出力
+- `ImageOCR2Excel/templates.py`: テンプレートJSON保存・読み込み
+- `ImageOCR2Excel/profiles/generic.py`: 汎用画像OCRプロファイル
+- `docs/FOUNDATION_ARCHITECTURE.md`: 基盤とアプリ固有層の境界
+
+ルート直下の旧MVPファイルと`web/`のTauri試作は参照用として残しています。
 
 ## ショートカット
 

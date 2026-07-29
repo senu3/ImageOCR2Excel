@@ -1,16 +1,14 @@
+$LauncherArgs = $args
 $ErrorActionPreference = "Stop"
 
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$uv = Get-Command uv -ErrorAction SilentlyContinue
-
-if (-not $uv) {
-    Write-Host "uvが見つかりません。uvをインストールしてから再実行してください。"
-    exit 1
-}
-
-Push-Location $root
+$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+Push-Location $projectRoot
 try {
-    & $uv.Source run image_ocr_excel_app.py
-} finally {
+    uv run python launcher.py @LauncherArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "Launcher failed with exit code $LASTEXITCODE."
+    }
+}
+finally {
     Pop-Location
 }

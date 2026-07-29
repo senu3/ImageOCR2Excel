@@ -4,7 +4,7 @@
 
 Image OCR to Excel is a dense product UI for a local desktop workflow. The interface should feel like a focused workbench: a large image workspace, a persistent right-side task panel, and explicit export controls.
 
-The current implementation is CustomTkinter. The long-term target described in `docs/UI_DESIGN.md` is Tauri + React for the shell and interaction-heavy UI, with Python remaining the OCR and Excel processing engine.
+The current implementation is the Python package `ImageOCR2Excel` with a CustomTkinter UI. The older Tauri + React work under `web/` is a prototype/reference, not the primary development surface.
 
 ## Register
 
@@ -12,11 +12,11 @@ product
 
 ## Visual Direction
 
-Use a black-based dark mode as the default visual direction. The UI should be quiet, legible, and operational rather than decorative. Purple is an accent for focus, selection, active controls, and primary actions; it should not flood the whole product.
+Use a black-based dark mode as the default visual direction. The UI should be quiet, legible, and operational rather than decorative. Teal is the main functional accent for active controls and enabled OCR regions; orange is reserved for primary export actions and selected regions.
 
 Physical scene: a user is working through image batches on a Windows desktop, comparing OCR regions and output fields for accuracy under normal office lighting. The screen should reduce glare, keep the image canvas prominent, and make mistakes visible before export.
 
-Color strategy: restrained dark product UI with one functional purple accent, plus semantic colors for warning, danger, success, and OCR region state.
+Color strategy: restrained dark product UI with teal and orange doing distinct jobs, plus semantic colors for warning, danger, success, and OCR region state.
 
 ## Color
 
@@ -30,9 +30,11 @@ Future dark theme tokens should use OKLCH.
   --color-border: oklch(0.33 0.025 270);
   --color-text: oklch(0.93 0.01 270);
   --color-muted: oklch(0.72 0.018 270);
-  --color-accent: oklch(0.68 0.2 300);
-  --color-accent-hover: oklch(0.74 0.19 300);
-  --color-accent-subtle: oklch(0.27 0.07 300);
+  --color-accent: oklch(0.65 0.12 185);
+  --color-accent-hover: oklch(0.72 0.13 185);
+  --color-accent-subtle: oklch(0.27 0.05 185);
+  --color-cta: oklch(0.69 0.18 48);
+  --color-cta-hover: oklch(0.75 0.17 48);
   --color-region-enabled: oklch(0.74 0.14 190);
   --color-region-selected: oklch(0.76 0.17 55);
   --color-danger: oklch(0.67 0.2 25);
@@ -41,21 +43,21 @@ Future dark theme tokens should use OKLCH.
 }
 ```
 
-Current CustomTkinter colors are light-shell with a dark canvas:
+Current CustomTkinter colors are a dark operational shell:
 
 ```text
-BG #f6f8fb
-Surface #ffffff
-Surface alt #f8fafc
-Text #12323a
-Muted #64748b
+BG #071012
+Surface #10191c
+Surface alt #162226
+Text #eef7f8
+Muted #b5c7ca
 Primary teal #0d9488
 CTA orange #f97316
-Canvas bg #111827
-Canvas panel #1f2937
+Canvas bg #071012
+Canvas panel #0b1417
 ```
 
-When migrating the UI, preserve the functional distinction already present in the code: enabled regions use teal, selected regions use orange, and primary workflow controls have one consistent accent. If adopting purple as the accent, reserve orange for selected OCR regions or warnings so selection stays obvious over image content.
+Preserve the functional distinction already present in the code: enabled regions use teal, selected regions use orange, and primary workflow controls have one consistent accent.
 
 ## Typography
 
@@ -106,9 +108,9 @@ Core components:
 - OCR result row with editable value.
 - Export settings form.
 - Progress and error summary.
-- Settings dialog for OCR language and Tesseract path.
+- Settings dialog for OCR language and backend readiness.
 
-Every interactive component needs default, hover, focus, active, disabled, and error states. Focus states should be visible in purple or a high-contrast outline and must not rely on color alone.
+Every interactive component needs default, hover, focus, active, disabled, and error states. Focus states should be visible in teal or a high-contrast outline and must not rely on color alone.
 
 ## Interaction
 
@@ -153,10 +155,10 @@ Keyboard requirements:
 
 UI code should not implement OCR, Excel writing, template serialization, or coordinate scaling. Keep these boundaries:
 
-- `ocr_models.py`: template data model.
-- `ocr_engine.py`: OCR, preprocessing, postprocessing, coordinate scaling.
-- `excel_exporter.py`: Excel writing and error sheet generation.
-- `template_store.py`: template JSON serialization.
-- `image_ocr_excel_app.py`: current CustomTkinter UI.
+- `ImageOCR2Excel/models.py`: template data model.
+- `ImageOCR2Excel/ocr/engine.py`: OCR, preprocessing, postprocessing, coordinate scaling.
+- `ImageOCR2Excel/export/`: Excel/CSV writing and error sheet generation.
+- `ImageOCR2Excel/templates.py`: template JSON serialization.
+- `ImageOCR2Excel/application.py`: current CustomTkinter UI.
 
-For the future Tauri + React version, call Python capabilities through a small local API or command bridge rather than duplicating processing logic in the frontend.
+If the Tauri + React prototype is revived later, call Python capabilities through a small local API or command bridge rather than duplicating processing logic in the frontend.

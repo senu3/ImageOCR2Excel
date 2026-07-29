@@ -1,8 +1,10 @@
-# Python/Tauri Bridge Design
+# Python/Tauri Bridge Design（Archived）
 
 ## Purpose
 
-Python 版で蓄積している OCR、テンプレート、Excel 出力の処理を壊さずに、Tauri/React UI へ段階的に接続する。
+Python 版で蓄積している OCR、テンプレート、Excel 出力の処理を壊さずに、Tauri/React UI へ段階的に接続するための試作設計。
+
+現在の主対象は Python パッケージ版の `ImageOCR2Excel` であり、この文書は `web/` 配下のTauri試作を再開する場合の参照資料として扱う。
 
 この設計では、React は編集体験、Tauri/Rust は OS 連携、Python は業務ロジックを担当する。保存形式、OCR の前処理、Excel 出力の判断を React 側へ複製しないことを最優先にする。
 
@@ -45,13 +47,13 @@ Rust 側でテンプレート JSON を組み立てたり、OCR/Excel の仕様�
 - テンプレート field の正規化
 - OCR 対象領域の座標検証
 - 後処理ルールの検証
-- Tesseract 設定の検証
+- OCRバックエンド設定の検証
 - OCR プレビュー
 - Excel 出力
-- 既存テンプレートとの互換読み込み
+- ImageOCR2Excel version 1 テンプレートの読み込み
 - ユーザー向けエラーの整形
 
-`ocr_models.py` と `template_store.py` を中心に、保存形式 version 3 の責任を Python 側へ寄せる。
+`ImageOCR2Excel/models.py` と `ImageOCR2Excel/templates.py` を中心に、保存形式 version 1 の責任を Python 側へ寄せる。
 
 ## Process Model
 
@@ -120,7 +122,7 @@ stderr は開発者向けログに使う。UI に出す文言は stdout の `err
 
 ### `template_save`
 
-React の draft DTO を受け取り、Python が version 3 の保存 JSON へ変換して書き込む。
+React の draft DTO を受け取り、Python が version 1 の保存 JSON へ変換して書き込む。
 
 Input:
 
@@ -132,7 +134,7 @@ Input:
     "sample_image": "C:/path/sample.png",
     "sample_image_size": { "width": 2480, "height": 3508 },
     "lang": "jpn",
-    "tesseract_path": "",
+    "ocr_backend": "paddle",
     "output_settings": {},
     "fields": []
   }
@@ -251,7 +253,7 @@ Output:
 
 ### `settings_validate`
 
-Tesseract path、言語、出力先などを Python 側で検証する。
+OCRバックエンド、言語、出力先などを Python 側で検証する。
 
 Output:
 
@@ -260,8 +262,8 @@ Output:
   "issues": [
     {
       "level": "warning",
-      "code": "tesseract.path_missing",
-      "message": "Tesseract のパスが未設定です。"
+      "code": "ocr.backend_unavailable",
+      "message": "OCRバックエンドを初期化できません。"
     }
   ]
 }
@@ -348,7 +350,7 @@ Initial codes:
 - `template.unsupported_version`
 - `template.invalid_field`
 - `image.unsupported_format`
-- `ocr.tesseract_not_found`
+- `ocr.backend_unavailable`
 - `ocr.failed`
 - `excel.export_failed`
 
@@ -373,9 +375,9 @@ Initial codes:
 
 Python 側の現在の保存形式は次を基準にする。
 
-- `ocr_models.py`
-- `template_store.py`
-- `TEMPLATE_VERSION = 3`
+- `ImageOCR2Excel/models.py`
+- `ImageOCR2Excel/templates.py`
+- `TEMPLATE_VERSION = 1`
 
 ## Migration Plan
 
@@ -392,8 +394,8 @@ Python 側の現在の保存形式は次を基準にする。
 
 Python:
 
-- `template_store.py` の保存/読み込み round trip
-- 古いテンプレート形式の互換読み込み
+- `ImageOCR2Excel/templates.py` の保存/読み込み round trip
+- version 1 以外のテンプレートを拒否する検証
 - field 座標の正規化
 - invalid postprocess の fallback
 - `bridge_cli.py` の success/failure JSON
@@ -417,4 +419,4 @@ Web:
 - Rust 側にテンプレート正規化ロジックを実装しない。
 - 初期段階で HTTP サーバーや WebSocket を導入しない。
 - 初期段階で複数画像の batch 処理設計まで広げない。
-- 保存形式の version 3 を無理由に壊さない。
+- Pythonパッケージ版の version 1 テンプレート仕様をReact側で再定義しない。
