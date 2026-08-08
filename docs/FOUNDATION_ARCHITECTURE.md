@@ -37,10 +37,9 @@
 - 自動検出ストラテジーは持たない
 - UIにはプロファイル選択を出さない
 
-## テンプレート互換性
+## テンプレート形式
 
 - 新しいImageOCR2Excelテンプレートは version 1 から開始する。
-- MVP期の旧version 3テンプレートは移行しない。
 - 保存形式には `profile_id`、`ocr_backend`、`coordinate_settings`、
   `text_formatting`、`set_definition` を含める。
 - Tesseract設定は保存形式へ含めない。
