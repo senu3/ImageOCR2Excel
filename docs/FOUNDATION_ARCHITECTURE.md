@@ -1,6 +1,7 @@
 # Python基盤とImageOCR2Excel固有層
 
-この文書は開発者向けです。利用方法は `README.md` に集約します。
+この文書は開発者向けです。導入方法は `README.md`、起動後の操作は
+`docs/USER_GUIDE.md` を参照してください。
 
 ## 境界
 

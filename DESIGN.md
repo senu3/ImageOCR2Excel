@@ -118,7 +118,7 @@ Template creation should favor direct manipulation:
 
 - Drag to create a region.
 - Select a region from canvas or field list.
-- Move and resize regions in the future web UI.
+- Move and resize regions directly on the current image canvas.
 - Show enabled regions in teal and selected regions in orange.
 - Keep field order visible because it determines Excel column order.
 
@@ -149,7 +149,7 @@ Keyboard requirements:
 
 - Existing shortcuts remain supported: previous/next image, save/load template, export.
 - Tab order follows the workflow from toolbar to canvas controls to side panel.
-- Canvas region actions need keyboard-accessible alternatives in the future web UI.
+- Canvas region actions should continue gaining keyboard-accessible alternatives.
 
 ## Implementation Notes
 

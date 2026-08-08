@@ -64,27 +64,26 @@ The field order is the Excel column order. This relationship should be visible i
 
 ## Image Region Editor
 
-A future web UI could support:
+The current Python UI supports:
 
 - Drag to create a region.
 - Drag to move a region.
 - Handles to resize a region.
-- Zoom to fit, 100%, and mouse wheel zoom.
-- Canvas pan.
+- Mouse-wheel scrolling and Ctrl + mouse-wheel zoom.
 - Selected region highlighted in orange.
 - Nonselected enabled regions highlighted in teal.
-
-The current Python UI only supports drag-create and reselect. This is a possible future enhancement, but it does not justify reactivating the archived Tauri prototype by itself.
+- Double-click field-name editing and a context menu for duplicate, edit, and delete.
+- Undo for the latest add, delete, move, or resize operation.
 
 ## Review Tab
 
 The review tab should make OCR trust visible.
 
-Required controls:
+Current controls:
 
 - Current image preview.
 - Field-by-field OCR results.
-- Inline corrections.
+- Editable recognition results.
 - Re-run OCR for current image.
 - Image navigation.
 
@@ -104,12 +103,16 @@ Export settings should remain explicit and conservative:
 - Include filename column.
 - Include header row.
 
-After export, the app should show:
+After export, the app shows:
 
 - Success count.
 - Error count.
 - Link/path to the output file.
 - Error details from the `Errors` sheet.
+- Per-image queue status and retry of failed images.
+
+CSV export is available as a secondary action when workbook-specific settings and
+error sheets are not required.
 
 ## Processing Boundary
 
@@ -124,9 +127,10 @@ Current processing modules:
 
 If the archived React/Tauri prototype is revived, it should call these capabilities through a small local API or command bridge rather than reimplementing them.
 
-## Migration Plan
+## Evolution Constraints
 
-1. Keep the current Python package UI working.
+1. Keep the released Python package UI working while features evolve.
 2. Keep OCR, template, and export logic isolated under `ImageOCR2Excel`.
-3. Do not reactivate the archived Tauri prototype unless a concrete UI requirement warrants it.
-4. If it is revived, connect the React UI to the Python engine through a small local API or command boundary.
+3. Keep game- or document-specific detection outside the generic profile.
+4. Do not reactivate the archived Tauri prototype without a concrete product requirement.
+5. If it is revived, connect it to the Python engine through a small local API or command boundary.
