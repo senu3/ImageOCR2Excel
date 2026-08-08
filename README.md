@@ -113,7 +113,9 @@ sample2.png | ... | ...
 - `ImageOCR2Excel/profiles/generic.py`: 汎用画像OCRプロファイル
 - `docs/FOUNDATION_ARCHITECTURE.md`: 基盤とアプリ固有層の境界
 
-ルート直下の旧MVPファイルと`web/`のTauri試作は参照用として残しています。
+旧MVPのスナップショットは`archive/legacy_mvp/`、Tauri試作は
+`archive/tauri_prototype/`へ移しています。現行アプリの起動や開発は
+`ImageOCR2Excel/`配下だけを対象にしてください。
 
 ## ショートカット
 

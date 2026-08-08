@@ -12,14 +12,15 @@ The core workflow should stay narrow:
 
 Features that do not support this workflow should be secondary or hidden behind settings.
 
-## Recommended UI Stack
+## Current UI Stack
 
-The current CustomTkinter UI is serviceable for the Python desktop version, but the long-term UI should move to:
+The supported desktop UI is the Python/CustomTkinter application:
 
-- Tauri + React for the desktop shell and interaction-heavy UI.
-- Python as the local OCR/Excel processing engine.
+- CustomTkinter for the desktop shell and workflow UI.
+- Python for OCR, template, and Excel processing.
 
-This keeps local file access and Python OCR libraries while allowing a much richer editor experience.
+The earlier Tauri + React implementation is archived under
+`archive/tauri_prototype/` and is not part of the current migration target.
 
 ## Primary Layout
 
@@ -63,7 +64,7 @@ The field order is the Excel column order. This relationship should be visible i
 
 ## Image Region Editor
 
-Future web UI should support:
+A future web UI could support:
 
 - Drag to create a region.
 - Drag to move a region.
@@ -73,7 +74,7 @@ Future web UI should support:
 - Selected region highlighted in orange.
 - Nonselected enabled regions highlighted in teal.
 
-The current Python UI only supports drag-create and reselect. This is one of the strongest reasons to move the UI to web technology.
+The current Python UI only supports drag-create and reselect. This is a possible future enhancement, but it does not justify reactivating the archived Tauri prototype by itself.
 
 ## Review Tab
 
@@ -121,11 +122,11 @@ Current processing modules:
 - `ImageOCR2Excel/export/`: Excel/CSV writing and error sheet generation.
 - `ImageOCR2Excel/templates.py`: template JSON serialization.
 
-If the React/Tauri prototype is revived, it should call these capabilities through a small local API or command bridge rather than reimplementing them.
+If the archived React/Tauri prototype is revived, it should call these capabilities through a small local API or command bridge rather than reimplementing them.
 
 ## Migration Plan
 
 1. Keep the current Python package UI working.
 2. Keep OCR, template, and export logic isolated under `ImageOCR2Excel`.
-3. Add a local CLI/API layer only if the Tauri prototype is revived.
-4. Connect the React UI to the Python engine through that boundary.
+3. Do not reactivate the archived Tauri prototype unless a concrete UI requirement warrants it.
+4. If it is revived, connect the React UI to the Python engine through a small local API or command boundary.

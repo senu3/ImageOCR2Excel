@@ -403,7 +403,7 @@ class ImageOcrExcelApp:
         self.root.protocol("WM_DELETE_WINDOW", self.request_close)
 
     def _build_ui(self) -> None:
-        ctk.set_appearance_mode("dark")
+        ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
         self.root.configure(fg_color=COLOR_BG)
 
@@ -2500,6 +2500,9 @@ class ImageOcrExcelApp:
             checkbox_height=18,
             corner_radius=4,
             border_width=1,
+            border_color=COLOR_BORDER,
+            fg_color=COLOR_PRIMARY,
+            hover_color=COLOR_PRIMARY_HOVER,
             command=lambda i=idx, v=enabled_var: self.set_correction_rule_enabled(
                 i, v.get()
             ),
@@ -3416,6 +3419,9 @@ class ImageOcrExcelApp:
             checkbox_height=18,
             corner_radius=4,
             border_width=1,
+            border_color=COLOR_BORDER,
+            fg_color=COLOR_PRIMARY,
+            hover_color=COLOR_PRIMARY_HOVER,
             command=lambda i=idx, v=var: self.set_field_enabled(i, v.get()),
         ).grid(row=0, column=0, rowspan=2, padx=(8, 0), pady=8)
         ctk.CTkLabel(
@@ -3568,6 +3574,9 @@ class ImageOcrExcelApp:
             checkbox_height=18,
             corner_radius=4,
             border_width=1,
+            border_color=COLOR_BORDER,
+            fg_color=COLOR_PRIMARY,
+            hover_color=COLOR_PRIMARY_HOVER,
             command=lambda i=idx, v=var: self.set_field_enabled(i, v.get()),
         ).grid(row=0, column=0, rowspan=2, padx=(8, 0), pady=8)
         role_label = self._slot_display(field.slot_key)
@@ -4902,6 +4911,9 @@ class ImageOcrExcelApp:
             checkbox_height=18,
             corner_radius=4,
             border_width=1,
+            border_color=COLOR_BORDER,
+            fg_color=COLOR_PRIMARY,
+            hover_color=COLOR_PRIMARY_HOVER,
         )
         fullwidth_checkbox.grid(row=6, column=0, sticky="w", pady=(14, 0))
         image_text_correction_checkbox = None
@@ -4917,6 +4929,9 @@ class ImageOcrExcelApp:
                 checkbox_height=18,
                 corner_radius=4,
                 border_width=1,
+                border_color=COLOR_BORDER,
+                fg_color=COLOR_PRIMARY,
+                hover_color=COLOR_PRIMARY_HOVER,
             )
             image_text_correction_checkbox.grid(
                 row=7, column=0, sticky="w", pady=(12, 0)
