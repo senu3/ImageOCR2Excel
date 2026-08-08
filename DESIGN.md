@@ -12,49 +12,49 @@ product
 
 ## Visual Direction
 
-Use a bright, lightly tinted workbench as the default visual direction. The UI should be quiet, legible, and operational rather than decorative. Teal is the main functional accent for active controls and enabled OCR regions; orange is reserved for primary export actions and selected regions.
+Use a black-based dark mode as the default visual direction. The UI should be quiet, legible, and operational rather than decorative. Teal is the main functional accent for active controls and enabled OCR regions; orange is reserved for primary export actions and selected regions.
 
 Physical scene: a user is working through image batches on a Windows desktop, comparing OCR regions and output fields for accuracy under normal office lighting. The screen should reduce glare, keep the image canvas prominent, and make mistakes visible before export.
 
-Color strategy: white and pale blue-green surfaces with dark blue-green text. Teal and orange do distinct jobs, while semantic colors handle warning, danger, success, and OCR region state.
+Color strategy: restrained dark product UI with teal and orange doing distinct jobs, plus semantic colors for warning, danger, success, and OCR region state.
 
 ## Color
 
-Future theme tokens should use OKLCH.
+Future dark theme tokens should use OKLCH.
 
 ```css
 :root {
-  --color-bg: oklch(0.965 0.012 180);
-  --color-surface: oklch(1 0 0);
-  --color-surface-raised: oklch(0.985 0.008 180);
-  --color-border: oklch(0.84 0.025 180);
-  --color-text: oklch(0.25 0.035 190);
-  --color-muted: oklch(0.48 0.03 190);
-  --color-accent: oklch(0.48 0.11 180);
-  --color-accent-hover: oklch(0.4 0.1 180);
-  --color-accent-subtle: oklch(0.92 0.045 180);
-  --color-cta: oklch(0.52 0.17 42);
-  --color-cta-hover: oklch(0.44 0.16 42);
-  --color-region-enabled: oklch(0.58 0.13 170);
-  --color-region-selected: oklch(0.52 0.17 42);
-  --color-danger: oklch(0.5 0.18 20);
-  --color-warning: oklch(0.52 0.14 65);
-  --color-success: oklch(0.5 0.13 155);
+  --color-bg: oklch(0.145 0.018 270);
+  --color-surface: oklch(0.19 0.018 270);
+  --color-surface-raised: oklch(0.235 0.02 270);
+  --color-border: oklch(0.33 0.025 270);
+  --color-text: oklch(0.93 0.01 270);
+  --color-muted: oklch(0.72 0.018 270);
+  --color-accent: oklch(0.65 0.12 185);
+  --color-accent-hover: oklch(0.72 0.13 185);
+  --color-accent-subtle: oklch(0.27 0.05 185);
+  --color-cta: oklch(0.69 0.18 48);
+  --color-cta-hover: oklch(0.75 0.17 48);
+  --color-region-enabled: oklch(0.74 0.14 190);
+  --color-region-selected: oklch(0.76 0.17 55);
+  --color-danger: oklch(0.67 0.2 25);
+  --color-warning: oklch(0.78 0.16 75);
+  --color-success: oklch(0.72 0.14 150);
 }
 ```
 
-Current CustomTkinter colors are a bright operational shell:
+Current CustomTkinter colors are a dark operational shell:
 
 ```text
-BG #F2F6F6
-Surface #FFFFFF
-Surface alt #E7F0EF
-Text #193033
-Muted #52666A
-Primary teal #0F766E
-CTA orange #C2410C
-Canvas bg #E8F0EF
-Canvas panel #F2F6F6
+BG #071012
+Surface #10191c
+Surface alt #162226
+Text #eef7f8
+Muted #b5c7ca
+Primary teal #0d9488
+CTA orange #f97316
+Canvas bg #071012
+Canvas panel #0b1417
 ```
 
 Preserve the functional distinction already present in the code: enabled regions use teal, selected regions use orange, and primary workflow controls have one consistent accent.
@@ -143,7 +143,7 @@ Reduced motion should remove nonessential transitions and preserve immediate sta
 
 ## Accessibility
 
-Target WCAG AA contrast. Use dark blue-green text on the bright surfaces and avoid relying on color alone for selected, disabled, warning, and error states.
+Target WCAG AA contrast. In dark mode, avoid muted gray text below readable contrast. Use labels, icons, borders, or patterns in addition to color for selected, disabled, warning, and error states.
 
 Keyboard requirements:
 

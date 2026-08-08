@@ -15,7 +15,7 @@ class IconSet:
     def __init__(self) -> None:
         self._cache: dict[tuple[str, int, str], Image.Image] = {}
 
-    def get(self, name: str, size: int = 18, color: str = "#193033") -> ctk.CTkImage:
+    def get(self, name: str, size: int = 18, color: str = "#F3EFF8") -> ctk.CTkImage:
         key = (name, size, color)
         if key not in self._cache:
             scale = 4
